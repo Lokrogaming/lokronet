@@ -1,0 +1,3 @@
+# Shell-Scripte immer mit LF (CRLF würde Shebang + Tests brechen)
+*.sh text eol=lf
+docs/install text eol=lf
