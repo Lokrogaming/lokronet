@@ -1,0 +1,19 @@
+# Vorlage für den Daemon als USER-Service (nicht systemweit!).
+# Installieren mit: deploy/install.sh --daemon
+# (legt das automatisch nach ~/.config/systemd/user/).
+# Händisch: diese Datei nach ~/.config/systemd/user/lokronet-daemon.service kopieren,
+# dabei <BIN> durch `command -v lokronet` ersetzen.
+[Unit]
+Description=LokroNet Daemon (Mesh-Backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=<BIN> daemon
+NoNewPrivileges=yes
+PrivateTmp=yes
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

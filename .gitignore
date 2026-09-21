@@ -1,0 +1,14 @@
+# ---> Go
+bin/
+dist/
+*.exe
+
+# LokroNet
+.lokronet/
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
