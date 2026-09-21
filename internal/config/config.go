@@ -25,6 +25,11 @@ type Config struct {
 	// reicht nur für Tests auf einer Maschine). Hinter NAT per
 	// `setup --endpoint <public-ip:port>` setzen (STUN-Autoerkennung folgt).
 	Endpoint string `json:"endpoint"`
+	// Mode: "performance"|"normal"|"eco" ("" = normal). Siehe internal/mode.
+	Mode string `json:"mode"`
+	// MeshDisabled schaltet den UDP-Meshpoint ab (nur noch Signaling).
+	// Umschalten braucht einen Daemon-Neustart.
+	MeshDisabled bool `json:"mesh_disabled"`
 }
 
 // Dir legt ~/.lokronet an und gibt den Pfad zurück.

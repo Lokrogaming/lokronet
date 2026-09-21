@@ -35,6 +35,8 @@ func usage() {
   lokronet connect --id <12 Ziffern>
   lokronet ping --id <12 Ziffern>
   lokronet debug on|off
+  lokronet mode [performance|normal|eco]
+  lokronet mesh [on|off]
   lokronet logs [--tail N]`)
 }
 
@@ -62,6 +64,10 @@ func main() {
 		err = cmdPing(os.Args[2:])
 	case "debug":
 		err = cmdDebug(os.Args[2:])
+	case "mode":
+		err = cmdMode(os.Args[2:])
+	case "mesh":
+		err = cmdMesh(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
 	default:
@@ -279,8 +285,114 @@ func cmdDebug(args []string) error {
 	return nil
 }
 
-func cmdLogs(args []string) error {
-	data, err := ipcCall("GET", "/v1/events", nil)
+// --- mode / mesh -------------------------------------------------------------
+// Liest/schreibt Modus + Mesh-Schalter. Mit laufendem Daemon live per IPC,
+// sonst direkt in der Config (wirkt beim nächsten Daemon-Start).
+
+func modeFromIPC() (string, bool, error) {
+	data, err := ipcCall("GET", "/v1/mode", nil)
+	if err != nil {
+		return "", false, err
+	}
+	var v struct {
+		Mode string `json:"mode"`
+		Mesh bool   `json:"mesh"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return "", false, err
+	}
+	return v.Mode, v.Mesh, nil
+}
+
+func setModeIPC(setMode *string, setMesh *bool) (string, error) {
+	body := map[string]any{}
+	if setMode != nil {
+		body["mode"] = *setMode
+	}
+	if setMesh != nil {
+		body["mesh"] = *setMesh
+	}
+	data, err := ipcCall("POST", "/v1/mode", body)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func cmdMode(args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("nutze: lokronet mode [performance|normal|eco]")
+	}
+	if len(args) == 0 {
+		if m, _, err := modeFromIPC(); err == nil {
+			fmt.Printf("mode: %s (Daemon, live)\n", m)
+			return nil
+		}
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return err
+		}
+		if cfg.Mode == "" {
+			cfg.Mode = "normal"
+		}
+		fmt.Printf("mode: %s (gespeichert, Daemon offline)\n", cfg.Mode)
+		return nil
+	}
+	m := args[0]
+	if m != "performance" && m != "normal" && m != "eco" {
+		return fmt.Errorf("unbekannter mode %q (performance|normal|eco)", m)
+	}
+	if out, err := setModeIPC(&m, nil); err == nil {
+		fmt.Printf("mode: %s (live) %s\n", m, out)
+		return nil
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.Mode = m
+	if err := config.SaveConfig(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("mode: %s (gespeichert, wirkt beim Daemon-Start)\n", m)
+	return nil
+}
+
+func cmdMesh(args []string) error {
+	if len(args) > 1 || (len(args) == 1 && args[0] != "on" && args[0] != "off") {
+		return fmt.Errorf("nutze: lokronet mesh [on|off]")
+	}
+	if len(args) == 0 {
+		if _, mesh, err := modeFromIPC(); err == nil {
+			fmt.Printf("mesh: %s (Daemon)\n", map[bool]string{true: "on", false: "off"}[mesh])
+			return nil
+		}
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("mesh: %s (gespeichert, Daemon offline)\n", map[bool]string{true: "on", false: "off"}[!cfg.MeshDisabled])
+		return nil
+	}
+	want := args[0] == "on"
+	if out, err := setModeIPC(nil, &want); err == nil {
+		fmt.Printf("mesh: %s %s\n", args[0], out)
+		fmt.Println("hinweis: Mesh-Umschaltung braucht einen Daemon-Neustart")
+		return nil
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.MeshDisabled = !want
+	if err := config.SaveConfig(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("mesh: %s (gespeichert, wirkt beim Daemon-Start)\n", args[0])
+	return nil
+}
+
+func cmdLogs(args []string) error {	data, err := ipcCall("GET", "/v1/events", nil)
 	if err != nil {
 		return err
 	}
