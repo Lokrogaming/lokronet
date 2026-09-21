@@ -1,86 +1,75 @@
-# LokroNet auf Linux installieren (via net.lokro.dev)
+# LokroNet auf Linux installieren
 
 ## Für Nutzer (auf dem Linux-Server/PC)
 
-Voraussetzungen: 64-Bit-Linux (amd64 oder arm64), `curl`, Honduras keine.
-Frische Go-Installation ist **nicht** nötig – das Script lädt das fertige Binary.
+Voraussetzungen: 64-Bit-Linux (amd64 oder arm64), `curl`. Kein Go nötig –
+das Script lädt das fertige Binary aus den GitHub-Releases und prüft sha256.
 
 ```bash
-# Nur das Binary (nach /usr/local/bin, braucht sudo)
+# Standard (Binary nach /usr/local/bin, braucht sudo)
 curl -fsSL https://net.lokro.dev/install | sudo bash
 
-# Mit Version pinnen
+# Version pinnen (folgt automatisch dem Release-Tag vX.Y.Z)
 curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --version=0.1.0
 
 # Ohne root, nach ~/.local/bin
 curl -fsSL https://net.lokro.dev/install | bash -s -- --user
 
-# Server-Modus: zusätzlich Rendezvous als System-Service
+# Rendezvous gleich als System-Service mitnehmen (nur auf Servern)
 curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --rendezvous
 
 # Daemon als Autostart (läuft mit deiner Identität, nicht root)
 curl -fsSL https://net.lokro.dev/install | bash -s -- --daemon
 ```
 
+Bis `net.lokro.dev` per DNS live ist, geht ersatzweise direkt:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lokrogaming/lokronet/main/deploy/install.sh | sudo bash
+```
+
 Danach (als dein User, **nicht** root):
 
 ```bash
-lokronet version
-lokronet setup --rendezvous https://net.lokro.dev
+lokronet setup --rendezvous http://DEIN-RENDEZVOUS-HOST:8787
 lokronet debug on
 lokronet daemon
 ```
 
-Prüfung in zweitem Terminal: `lokronet status`, `lokronet logs --tail 20`.
+Sicherheit: Downloads werden per `sha256sum` gegen `checksums.txt` verifiziert,
+Abbruch bei Mismatch.
 
-Sicherheit: das Script verifiziert jeden Download per `sha256sum` gegen
-`checksums.txt` und bricht bei Mismatch ab. Prüfsummen zusätzlich out-of-band
-vergleichen (Release-Seite), bevor du `| sudo bash` ausführst.
+## Hosting: net.lokro.dev (GitHub Pages, statisch)
 
-## Für dich (net.lokro.dev einmalig einrichten)
+Pages liefert nur statische Dateien – das reicht für `/install` und die
+Landingpage. Binaries kommen aus den GitHub-Releases.
 
-1. Release bauen (hier im Repo, Go-Toolchain reicht):
+* Quelle: `docs/` auf `main` (`.nojekyll`, `CNAME`, `index.html`,
+  `install` = Kopie von `deploy/install.sh`, sync per `make pages`).
+* Repo → Settings → Pages → Deploy from branch → `main` + `/docs`
+  (alternativ schon per API aktiviert, siehe unten).
+* DNS beim Provider: CNAME `net` → `Lokrogaming.github.io`, dann in den
+  Pages-Settings „Enforce HTTPS“ aktivieren (Let's Encrypt, automatisch).
+* Test: `curl -fsSL https://net.lokro.dev/install | bash -s -- --help`
 
-   ```powershell
-   # Windows-Powershell:
-   $v = (Get-Content VERSION).Trim()
-   $env:GOOS="linux"; $env:GOARCH="amd64"
-   go build -trimpath -ldflags "-s -w -X main.Version=$v" -o dist/lokronet_linux_amd64 ./cmd/lokronet
-   $env:GOARCH="arm64"
-   go build -trimpath -ldflags "-s -w -X main.Version=$v" -o dist/lokronet_linux_arm64 ./cmd/lokronet
-   # (oder auf Linux einfach: make build-linux checksums)
-   ```
+## Rendezvous auf dem VPS (z.B. DiscordBot)
 
-2. Auf dem Webserver ablegen:
+Das Rendezvous braucht einen echten Server (Pages kann kein Signaling).
+Auf dem Server:
 
-   ```bash
-   # auf dem net.lokro.dev-Server:
-   sudo mkdir -p /srv/lokro-web/dl
-   # dist/*.tar.gz + checksums.txt hierher kopieren (scp/rsync)
-   sudo cp deploy/install.sh /srv/lokro-web/install
-   sudo cp deploy/nginx-net.lokro.dev.conf /etc/nginx/sites-available/net.lokro.dev
-   sudo ln -sf /etc/nginx/sites-available/net.lokro.dev /etc/nginx/sites-enabled/
-   sudo nginx -t && sudo systemctl reload nginx
-   sudo certbot --nginx -d net.lokro.dev   # TLS (Pflicht, sonst MITM beim Install)
-   ```
+```bash
+curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --rendezvous
+systemctl status lokro-rendezvous --no-pager
+curl http://127.0.0.1:8787/healthz   # muss "ok" sagen
+```
 
-3. Rendezvous auf dem Server starten (eine der Varianten):
+Firewall öffnen (sonst kommt kein Peer durch):
 
-   ```bash
-   # Variante A: per Installer
-   curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --rendezvous
-   # Variante B: lokronet läuft schon -> Unit von Hand
-   sudo cp deploy/systemd/lokro-rendezvous.service /etc/systemd/system/
-   sudo systemctl daemon-reload && sudo systemctl enable --now lokro-rendezvous
-   ```
+```bash
+ufw allow 8787/tcp       # Signaling
+ufw allow 51820/udp      # Mesh-UDP (Default-Port, je Peer ggf. mehr)
+```
 
-4. Test von einem frischen Linux-Rechner/Container:
-
-   ```bash
-   curl -fsSL https://net.lokro.dev/install | sudo bash
-   lokronet setup --rendezvous https://net.lokro.dev
-   ```
-
-Hinweis: `deploy/install.sh` ist die Quelle der Wahrheit für `/install`;
-`deploy/systemd/*.service` für die Units (der Installer enthält Kopien davon inline –
-nach Änderungen dort auch die Inline-Kopien in `install.sh` aktualisieren).
+Clients nutzen dann `--rendezvous http://SERVER-IP-O-DOMAIN:8787`.
+MVP-Hinweis: dieses HTTP ist unverschlüsselt – nur für Tests im vertrauten
+Netz. TLS fürs Rendezvous (eigene Subdomain + Reverse-Proxy) kommt mit P1.

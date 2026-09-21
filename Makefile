@@ -31,6 +31,14 @@ checksums:
 clean:
 	rm -rf $(DIST)
 
+# GitHub-Pages-Sync: published /install unter net.lokro.dev.
+# Quelle der Wahrheit bleibt deploy/install.sh (hier nur kopieren, nie editieren).
+pages:
+	mkdir -p docs
+	cp deploy/install.sh docs/install
+	touch docs/.nojekyll
+	@echo "docs/install synchronisiert (CNAME + index.html sind eingecheckt)"
+
 # Windows ohne make (Powershell):
 #   $v = (Get-Content VERSION).Trim()
 #   $env:GOOS="linux"; $env:GOARCH="amd64"; go build -trimpath -ldflags "-s -w -X main.Version=$v" -o dist/lokronet_linux_amd64 ./cmd/lokronet
