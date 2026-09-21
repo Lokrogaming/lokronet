@@ -28,7 +28,7 @@ func usage() {
 	fmt.Println(`lokronet – Meshnet-CLI (MVP: Mesh + Debug)
 
   lokronet version
-  lokronet setup [--rendezvous URL] [--port N]
+  lokronet setup [--rendezvous URL] [--port N] [--endpoint ip:port]
   lokronet daemon                       Backend starten (Vordergrund)
   lokronet rendezvous [--addr 127.0.0.1:8787]
   lokronet status
@@ -81,6 +81,7 @@ func cmdSetup(args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	rzURL := fs.String("rendezvous", config.DefaultRendezvous, "Rendezvous-Basis-URL")
 	port := fs.Int("port", 51820, "Wunsch-UDP-Port (0=auto)")
+	endpoint := fs.String("endpoint", "", "Öffentlicher Endpoint ip:port (Pflicht hinter NAT, sonst 127.0.0.1)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -89,6 +90,7 @@ func cmdSetup(args []string) error {
 		return err
 	}
 	cfg.RendezvousURL = *rzURL
+	cfg.Endpoint = *endpoint
 	client := signal.NewClient(cfg.RendezvousURL)
 
 	var ident *identity.Identity
@@ -105,7 +107,7 @@ func cmdSetup(args []string) error {
 		if err != nil {
 			return err
 		}
-		peer, err := ident.ToPeer(fmt.Sprintf("127.0.0.1:%d", cfg.UDPPort))
+		peer, err := ident.ToPeer(publicEndpoint(cfg))
 		if err != nil {
 			return err
 		}
@@ -124,12 +126,21 @@ func cmdSetup(args []string) error {
 		return err
 	}
 	fp, _ := ident.Fingerprint()
-	fmt.Printf("setup ok\n  id:          %s\n  fingerprint: %s\n  udp-port:    %d\n  rendezvous:  %s\n", ident.ID, fp, cfg.UDPPort, cfg.RendezvousURL)
+	fmt.Printf("setup ok\n  id:          %s\n  fingerprint: %s\n  udp-port:    %d\n  endpoint:    %s\n  rendezvous:  %s\n", ident.ID, fp, cfg.UDPPort, publicEndpoint(cfg), cfg.RendezvousURL)
 	fmt.Println("nächste Schritte:")
 	fmt.Println("  1) lokronet rendezvous   (in eigenem Terminal, lokaler Test-Server)")
 	fmt.Println("  2) lokronet daemon       (Backend starten)")
 	fmt.Println("  3) lokronet status")
 	return nil
+}
+
+// publicEndpoint: gleiche Logik wie im Daemon (Registrierung meldet,
+// was Heartbeat später bestätigt).
+func publicEndpoint(cfg *config.Config) string {
+	if cfg.Endpoint != "" {
+		return cfg.Endpoint
+	}
+	return fmt.Sprintf("127.0.0.1:%d", cfg.UDPPort)
 }
 
 // --- daemon / rendezvous ---------------------------------------------------

@@ -86,6 +86,15 @@ func (d *Daemon) localEndpoint() string {
 	return fmt.Sprintf("127.0.0.1:%d", d.cfg.UDPPort)
 }
 
+// publicEndpoint meldet die öffentlich erreichbare Adresse (Heartbeat/Pairing).
+// Ohne --endpoint fällt es auf 127.0.0.1:port zurück (nur lokale Tests).
+func (d *Daemon) publicEndpoint() string {
+	if d.cfg.Endpoint != "" {
+		return d.cfg.Endpoint
+	}
+	return d.localEndpoint()
+}
+
 // Start bindet UDP, startet Loops und blockiert mit dem IPC-Server.
 func (d *Daemon) Start() error {
 	if d.cfg.UDPPort == 0 {
@@ -161,11 +170,11 @@ func (d *Daemon) udpLoop() {
 // --- Realtime-Kanal: Heartbeat + Signaling-Poll --------------------------
 
 func (d *Daemon) heartbeatLoop() {
-	_ = d.sig.Heartbeat(d.ident.ID, d.localEndpoint())
+	_ = d.sig.Heartbeat(d.ident.ID, d.publicEndpoint())
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	for range t.C {
-		if err := d.sig.Heartbeat(d.ident.ID, d.localEndpoint()); err != nil {
+		if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint()); err != nil {
 			d.emit("heartbeat fehlgeschlagen: %v", err)
 		}
 	}
@@ -198,7 +207,7 @@ func (d *Daemon) onSignal(m proto.SignalMessage) {
 		d.peers[m.From] = &peerState{Peer: peer, State: "pending"}
 		d.mu.Unlock()
 		// Bestätigung zurück (Gegenstelle sieht uns als pending).
-		_ = d.sig.Send(proto.SignalMessage{From: d.ident.ID, To: m.From, Type: "pair-ack", Payload: d.localEndpoint()})
+		_ = d.sig.Send(proto.SignalMessage{From: d.ident.ID, To: m.From, Type: "pair-ack", Payload: d.publicEndpoint()})
 	case "punch":
 		// Gegenstelle will NAT öffnen -> ein paar Punch-Pakete zurück.
 		if peer, err := d.sig.Lookup(m.From); err == nil && peer.Endpoint != "" {
@@ -250,7 +259,7 @@ func (d *Daemon) Connect(id string) (proto.Peer, error) {
 	if peer.Endpoint != "" {
 		go d.punch(peer.Endpoint, 5)
 	}
-	_ = d.sig.Send(proto.SignalMessage{From: d.ident.ID, To: id, Type: "pair", Payload: d.localEndpoint()})
+	_ = d.sig.Send(proto.SignalMessage{From: d.ident.ID, To: id, Type: "pair", Payload: d.publicEndpoint()})
 	fp := peer.Fingerprint
 	if len(fp) > 16 {
 		fp = fp[:16] + "…"

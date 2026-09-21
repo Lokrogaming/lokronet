@@ -20,6 +20,11 @@ type Config struct {
 	Debug         bool   `json:"debug"`
 	RendezvousURL string `json:"rendezvous_url"`
 	UDPPort       int    `json:"udp_port"`
+	// Endpoint ist die öffentlich erreichbare Adresse "ip:port", die
+	// Heartbeat + Pairing melden. Leer = lokal raten (127.0.0.1:port,
+	// reicht nur für Tests auf einer Maschine). Hinter NAT per
+	// `setup --endpoint <public-ip:port>` setzen (STUN-Autoerkennung folgt).
+	Endpoint string `json:"endpoint"`
 }
 
 // Dir legt ~/.lokronet an und gibt den Pfad zurück.
