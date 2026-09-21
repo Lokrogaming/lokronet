@@ -17,28 +17,33 @@
 set -euo pipefail
 
 VERSION="${LOKRO_VERSION:-0.1.0}"
-# Default: GitHub-Release-Assets (folgt automatisch --version, Tags als vX.Y.Z).
-# Eigener Mirror (z.B. https://net.lokro.dev/dl) via --base / LOKRO_BASE.
-BASE="${LOKRO_BASE:-https://github.com/Lokrogaming/lokronet/releases/download/v${VERSION}}"
+# BASE wird bewusst erst NACH dem Argument-Parsing gesetzt (siehe unten),
+# damit --version / LOKRO_VERSION in die Default-URL einfließen.
+BASE="${LOKRO_BASE:-}"
 USER_MODE=0
 WITH_RENDEZVOUS=0
 WITH_DAEMON=0
 
-for arg in "$@"; do
-  case "$arg" in
-    --version=*) VERSION="${arg#--version=}" ;;
-    --version) echo "nutze: --version=X"; exit 2 ;;
-    --base=*) BASE="${arg#--base=}" ;;
-    --user) USER_MODE=1 ;;
-    --rendezvous) WITH_RENDEZVOUS=1 ;;
-    --daemon) WITH_DAEMON=1 ;;
-    --no-systemd) WITH_RENDEZVOUS=0; WITH_DAEMON=0 ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --version=*) VERSION="${1#--version=}"; shift ;;
+    --version) VERSION="${2:?--version braucht einen Wert}"; shift 2 ;;
+    --base=*) BASE="${1#--base=}"; shift ;;
+    --base) BASE="${2:?--base braucht einen Wert}"; shift 2 ;;
+    --user) USER_MODE=1; shift ;;
+    --rendezvous) WITH_RENDEZVOUS=1; shift ;;
+    --daemon) WITH_DAEMON=1; shift ;;
+    --no-systemd) WITH_RENDEZVOUS=0; WITH_DAEMON=0; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
-    *) echo "unbekannte Option: $arg (siehe --help)"; exit 2 ;;
+    *) echo "unbekannte Option: $1 (siehe --help)"; exit 2 ;;
   esac
 done
-# Zweites Positionsargument nach --version ohne = abfangen:
-if [ "${1:-}" = "--version" ]; then VERSION="${2:?--version braucht einen Wert}"; fi
+
+# Default: GitHub-Release-Assets (folgt --version, Tags als vX.Y.Z).
+# Eigener Mirror (z.B. https://net.lokro.dev/dl) via --base / LOKRO_BASE.
+if [ -z "$BASE" ]; then
+  BASE="https://github.com/Lokrogaming/lokronet/releases/download/v${VERSION}"
+fi
 
 ARCH="$(uname -m)"
 case "$ARCH" in
