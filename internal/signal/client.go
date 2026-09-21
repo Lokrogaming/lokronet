@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/lokro/lokronet/internal/metrics"
 	"github.com/lokro/lokronet/pkg/proto"
 )
 
@@ -16,6 +17,8 @@ import (
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	// M zählt Signaling-Bytes (nil = nicht zählen, z.B. reines CLI-Setup).
+	M *metrics.Counters
 }
 
 // NewClient erzeugt einen Client mit 10s-Timeout.
@@ -28,7 +31,19 @@ func (c *Client) post(path string, body any) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	if c.M != nil {
+		c.M.AddSigOut(len(data))
+	}
 	return c.HTTP.Post(c.BaseURL+path, "application/json", bytes.NewReader(data))
+}
+
+// drain liest kleine Antworten vollständig (für Connection-Reuse + Zählung).
+// Schließen übernimmt weiterhin das defer am Aufrufer.
+func (c *Client) drain(resp *http.Response) {
+	n, _ := io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	if c.M != nil {
+		c.M.AddSigIn(int(n))
+	}
 }
 
 func readErr(resp *http.Response) error {
@@ -47,6 +62,7 @@ func (c *Client) Register(p proto.Peer) error {
 	if resp.StatusCode != http.StatusOK {
 		return readErr(resp)
 	}
+	c.drain(resp)
 	return nil
 }
 
@@ -60,6 +76,7 @@ func (c *Client) Heartbeat(id, endpoint string) error {
 	if resp.StatusCode != http.StatusOK {
 		return readErr(resp)
 	}
+	c.drain(resp)
 	return nil
 }
 
@@ -73,8 +90,15 @@ func (c *Client) Lookup(id string) (proto.Peer, error) {
 	if resp.StatusCode != http.StatusOK {
 		return proto.Peer{}, readErr(resp)
 	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return proto.Peer{}, err
+	}
+	if c.M != nil {
+		c.M.AddSigIn(len(data))
+	}
 	var p proto.Peer
-	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+	if err := json.Unmarshal(data, &p); err != nil {
 		return proto.Peer{}, err
 	}
 	return p, nil
@@ -90,6 +114,7 @@ func (c *Client) Send(m proto.SignalMessage) error {
 	if resp.StatusCode != http.StatusOK {
 		return readErr(resp)
 	}
+	c.drain(resp)
 	return nil
 }
 
@@ -103,8 +128,15 @@ func (c *Client) Poll(to string, waitMs int) ([]proto.SignalMessage, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, readErr(resp)
 	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if c.M != nil {
+		c.M.AddSigIn(len(data))
+	}
 	var msgs []proto.SignalMessage
-	if err := json.NewDecoder(resp.Body).Decode(&msgs); err != nil {
+	if err := json.Unmarshal(data, &msgs); err != nil {
 		return nil, err
 	}
 	return msgs, nil

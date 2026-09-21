@@ -15,6 +15,7 @@ import (
 	"github.com/lokro/lokronet/internal/config"
 	"github.com/lokro/lokronet/internal/debug"
 	"github.com/lokro/lokronet/internal/identity"
+	"github.com/lokro/lokronet/internal/metrics"
 	"github.com/lokro/lokronet/internal/netcore"
 	"github.com/lokro/lokronet/internal/signal"
 	"github.com/lokro/lokronet/pkg/proto"
@@ -35,6 +36,7 @@ type Daemon struct {
 	bus   *debug.Bus
 	sig   *signal.Client
 	token string
+	m     *metrics.Counters
 
 	udp *net.UDPConn
 
@@ -57,12 +59,16 @@ func New() (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	m := metrics.New()
+	sigClient := signal.NewClient(cfg.RendezvousURL)
+	sigClient.M = m
 	return &Daemon{
 		cfg:      cfg,
 		ident:    ident,
 		bus:      debug.NewBus(200),
-		sig:      signal.NewClient(cfg.RendezvousURL),
+		sig:      sigClient,
 		token:    token,
+		m:        m,
 		peers:    make(map[string]*peerState),
 		pongWait: make(map[string]chan struct{}),
 	}, nil
@@ -119,14 +125,25 @@ func (d *Daemon) udpLoop() {
 		if err != nil {
 			continue
 		}
+		d.m.AddUDPIn(n)
+		if id := d.peerIDByEndpoint(addr.String()); id != "" {
+			d.m.AddPeerUDP(id, n, true)
+		}
 		msg := string(buf[:n])
 		switch {
 		case msg == "lokro-punch":
-			_, _ = d.udp.WriteToUDP([]byte("lokro-punch-ack"), addr)
+			out := []byte("lokro-punch-ack")
+			_, _ = d.udp.WriteToUDP(out, addr)
+			d.m.AddUDPOut(len(out))
 			d.emit("punch eingehend von %s -> ack", addr.String())
 		case strings.HasPrefix(msg, "lokro-ping:"):
 			nonce := strings.TrimPrefix(msg, "lokro-ping:")
-			_, _ = d.udp.WriteToUDP([]byte("lokro-pong:"+nonce), addr)
+			out := []byte("lokro-pong:" + nonce)
+			_, _ = d.udp.WriteToUDP(out, addr)
+			d.m.AddUDPOut(len(out))
+			if id := d.peerIDByEndpoint(addr.String()); id != "" {
+				d.m.AddPeerUDP(id, len(out), false)
+			}
 			d.emit("ping eingehend von %s nonce=%s -> pong", addr.String(), nonce)
 		case strings.HasPrefix(msg, "lokro-pong:"):
 			nonce := strings.TrimPrefix(msg, "lokro-pong:")
@@ -188,6 +205,19 @@ func (d *Daemon) onSignal(m proto.SignalMessage) {
 			go d.punch(peer.Endpoint, 3)
 		}
 	}
+}
+
+// peerIDByEndpoint ordnet eine Absenderadresse einer bekannten Peer-ID zu
+// (für die Traffic-Abrechnung; "" wenn unbekannt).
+func (d *Daemon) peerIDByEndpoint(endpoint string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for id, p := range d.peers {
+		if p.Peer.Endpoint == endpoint {
+			return id
+		}
+	}
+	return ""
 }
 
 // punch sendet n leere Pakete an endpoint (UDP Hole Punching, MVP).
@@ -255,9 +285,12 @@ func (d *Daemon) Ping(id string) (int64, error) {
 	d.mu.Unlock()
 
 	start := time.Now()
-	if _, err := d.udp.WriteToUDP([]byte("lokro-ping:"+nonce), addr); err != nil {
+	out := []byte("lokro-ping:" + nonce)
+	if _, err := d.udp.WriteToUDP(out, addr); err != nil {
 		return 0, err
 	}
+	d.m.AddUDPOut(len(out))
+	d.m.AddPeerUDP(id, len(out), false)
 	select {
 	case <-ch:
 		rtt := time.Since(start).Milliseconds()
@@ -312,6 +345,7 @@ func (d *Daemon) serveIPC() error {
 			"rendezvous":  d.cfg.RendezvousURL,
 			"debug":       d.cfg.Debug,
 			"peers":       peers,
+			"traffic":     d.m.Snapshot(),
 		})
 	}))
 	mux.HandleFunc("/v1/events", d.checkToken(func(w http.ResponseWriter, r *http.Request) {
