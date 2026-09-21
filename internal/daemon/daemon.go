@@ -419,7 +419,7 @@ func (d *Daemon) checkToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Lokro-Token") != d.token {
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			_, _ = w.Write([]byte(`{"error":"unauthorized: X-Lokro-Token Header fehlt oder falsch"}`))
 			return
 		}
 		next(w, r)
