@@ -15,7 +15,10 @@ type Peer struct {
 	WGPubB64    string `json:"wg_pub"`      // WireGuard public (base64, MVP: Platzhalter)
 	Fingerprint string `json:"fingerprint"` // hex(sha256(ed_pub))
 	Endpoint    string `json:"endpoint"`    // z.B. "84.1.2.3:51820"
-	LastSeen    int64  `json:"last_seen"`   // unix
+	// Mode wirbt den Drossel-Modus (performance|normal|eco, "" = unbekannt).
+	// Basis für Prio-Routing (performance > normal > eco), siehe IDEEN.md.
+	Mode     string `json:"mode,omitempty"`
+	LastSeen int64  `json:"last_seen"` // unix
 }
 
 type RegisterRequest struct {
@@ -25,6 +28,7 @@ type RegisterRequest struct {
 type HeartbeatRequest struct {
 	ID       string `json:"id"`
 	Endpoint string `json:"endpoint"`
+	Mode     string `json:"mode,omitempty"`
 }
 
 // SignalMessage ist der Realtime-Kanal über das Rendezvous

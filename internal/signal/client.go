@@ -66,9 +66,9 @@ func (c *Client) Register(p proto.Peer) error {
 	return nil
 }
 
-// Heartbeat aktualisiert Endpoint/LastSeen.
-func (c *Client) Heartbeat(id, endpoint string) error {
-	resp, err := c.post("/v1/heartbeat", proto.HeartbeatRequest{ID: id, Endpoint: endpoint})
+// Heartbeat aktualisiert Endpoint/LastSeen (+ Mode-Werbung für Prio-Routing).
+func (c *Client) Heartbeat(id, endpoint, mode string) error {
+	resp, err := c.post("/v1/heartbeat", proto.HeartbeatRequest{ID: id, Endpoint: endpoint, Mode: mode})
 	if err != nil {
 		return err
 	}

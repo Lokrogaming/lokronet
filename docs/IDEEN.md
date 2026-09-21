@@ -16,6 +16,10 @@ Status-Legende: `MVP` = zuerst bauen · `P1/P2/P3` = später · `Pflicht` = nich
 | 7 | Verteilung als Paket (`apt`, `winget`, Docker) | P1 |
 | 8 | Sicherheitsmechanismen gegen Hacker | Pflicht (ab MVP) |
 | 9 | Mesh-Traffic immer encrypted (v.a. Datei-Downloads) | Pflicht (ab MVP, bei Files nochmal verstärkt) |
+| 10 | Kontakte/Aliase, Connection-History (30 Tage), Terminal-Menü, Mode-Werbung | Beta (gebaut) |
+| 11 | Integrierter Messenger mit E2E (Session-RAM, Mesh-Transport) | P4 (geplant) |
+| 12 | Prio-Routing performance > normal > eco | P4 (geplant) |
+| 13 | System-Typ normal/database + verschlüsselte History-Sicherung | P5 (geplant) |
 
 ---
 
@@ -134,6 +138,83 @@ Terminal/Editor.
   Resume nur nach Verifikation, optional doppelte Schicht (z.B. `age`/Noise
   auf Datei-Ebene), damit selbst ein kompromittierter Relay-Server nichts lesen kann.
 * Debug-Logs enthalten nie Klartext-Inhalte, nur Metadaten (ID, Bytes, Dauer).
+
+---
+
+## 10. Kontakte, History, Terminal-Menü (Beta, gebaut)
+
+* `lokronet contacts add --name NAME --id ID` / `list` / `remove NAME`
+  (Name: 2–32 Zeichen, `a-z 0-9 - _`), `connect`/`ping` akzeptieren Namen.
+* `lokronet connections history`: letzte Verbindungen, auto-Pruning nach
+  30 Tagen ohne Reconnect (`internal/contacts`, `~/.lokronet/contacts.json`).
+* Bares `lokronet` öffnet ein nummeriertes Terminal-Menü (nur Stdlib,
+  daher Windows-cmd/PowerShell/Linux-kompatibel). Ausbau per Bubbletea
+  möglich, sobald externe Deps ok sind.
+* `proto.Peer.Mode` + Heartbeat-`mode` werben den Drossel-Modus
+  (Basis für Prio-Routing, siehe #12).
+
+## 11. Integrierter Messenger mit E2E (P4, geplant – noch nicht gebaut)
+
+**Idee:** Session-basierter Chat zwischen zwei verbundenen Systemen. Verlauf
+existiert nur, solange beide verbunden sind (RAM only), es sei denn, man
+wählt History-Sicherung auf einem Database-System (siehe #13).
+
+**So lösen (Plan):**
+* Transport: Nachrichten als UDP-Pakete über den bestehenden Mesh-Port
+  (`lokro-msg:<nonce>:<box>`), Routing über bekannte Peer-Endpoints
+  (später Multi-Hop über Prio-Tunnel, siehe #12). Max. ~1 KB pro Paket,
+  darüber Chunking mit Nonce + Sequenz (ähnlich Filesharing-Chunks).
+* E2E: pro Session ein frischer X25519-Handshake (Ephemeral Keys beider
+  Seiten, über Signaling-Kanal ausgetauscht, Fingerprints im Terminal
+  vergleichen wie beim Pairing), danach NaCl-`box` (oder `age`) pro
+  Nachricht. Session-Keys nur im RAM, nach Disconnect verworfen
+  (Forward Secrecy light). Long-term-Identität bleibt Ed25519.
+* CLI/TUI: `lokronet chat <name>` öffnet die Session-Ansicht
+  (senden/empfangen, `/quit`), Verlauf nur im Fenster.
+* Deps: `golang.org/x/crypto` (box/curve25519) – erste externe Dep,
+  per `go mod` + Hash-Pinning.
+* Sicherheit: Nachrichtengröße limitieren, Rate-Limit pro Peer (’ora Spam),
+  kein Klartext in Logs, keine Persistenz ohne Opt-in (#13).
+
+## 12. Prio-Routing nach Modus (P4, geplant – noch nicht gebaut)
+
+**Idee:** ECO-Systeme werden für Tunnel/Relay gemieden; Priorität
+`performance > normal > eco`. Kein Performance-System da? Nächstes
+Normal-System nehmen; ECO nur als letzter Ausweg.
+
+**So lösen (Plan):**
+* Grundlage ist gebaut: jeder Peer wirbt `mode` in Register/Heartbeat
+  (`proto.Peer.Mode`), sichtbar in Lookup/Status.
+* Router (`internal/route`, neu): sortiert Kandidaten nach
+  Score = Modus-Prio (performance 3, normal 2, eco 1, unbekannt 2)
+  minus Strafpunkten (RTT, Fehlversuche). ECO-Kandidaten nur, wenn
+  nichts anderes verfügbar ist (mit Warnung im Debug-Log).
+* Anwendung: Relay-/Multi-Hop-Auswahl für Messenger (#11) und später
+  File-Transfers; direkte 2-Peer-Pings bleiben direkt (kein Umweg).
+* `lokronet route <name>` zeigt die gewählte Route + Begründung
+  (für Debugging + Admin-Nachweis des Bandbreitenverhaltens).
+
+## 13. System-Typ normal/database + History-Sicherung (P5, geplant)
+
+**Idee:** `lokronet type change [normal|database]` stellt ein System um.
+Database-Systeme laden eine DB-Erweiterung (SQLite, per Download +
+Checksummen-Check) und dienen als globale, verschlüsselte Ablage für
+Chatverläufe. Im Messenger wählt man pro Chat „Verlauf sichern auf: …“
+(Auswahl aus bekannten Database-Servern; ohne Fund ist die Option aus).
+
+**So lösen (Plan):**
+* `type`: Config-Feld + Rendezvous-Werbung (`proto.Peer.Type`), sichtbar
+  in Lookup/Status. Wechsel nur mit Bestätigung (DB-Extension-Download
+  ~einmalig, Version gepinnt, sha256-verifiziert).
+* Admin-Verifikation: Database-Systeme brauchen ein Admin-Signet
+  (Admin signiert `id+fp+gültig-bis` offline; Clients prüfen die Signatur
+  gegen einen eingebauten/konfigurierbaren Admin-Pubkey). Ohne gültiges
+  Signet taucht der Server nicht in der Auswahl auf.
+* Verschlüsselung: Verlauf wird CLIENT-seitig mit einem Chat-Key
+  verschlüsselt (vom E2E-Handshake abgeleitet), DB sieht nur Blobs
+  (`chat_id`, `seq`, `cipher`, `ts`). Löschen = Key wegwerfen.
+* Abruf: beim nächsten Connect lädt der Client neue Blobs und
+  entschlüsselt lokal. Kein Klartext je auf Platte/DB.
 
 ---
 

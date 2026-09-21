@@ -82,7 +82,8 @@ func (i *Identity) Fingerprint() (string, error) {
 }
 
 // ToPeer baut die öffentliche Registrierung (ohne Private Keys).
-func (i *Identity) ToPeer(endpoint string) (proto.Peer, error) {
+// mode: Drossel-Modus zur Prio-Routing-Werbung ("" = normal/unbekannt).
+func (i *Identity) ToPeer(endpoint, mode string) (proto.Peer, error) {
 	fp, err := i.Fingerprint()
 	if err != nil {
 		return proto.Peer{}, err
@@ -93,6 +94,7 @@ func (i *Identity) ToPeer(endpoint string) (proto.Peer, error) {
 		WGPubB64:    i.WGPubB64,
 		Fingerprint: fp,
 		Endpoint:    endpoint,
+		Mode:        mode,
 		LastSeen:    time.Now().Unix(),
 	}, nil
 }

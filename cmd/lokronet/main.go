@@ -16,8 +16,10 @@ import (
 	"time"
 
 	"github.com/lokro/lokronet/internal/config"
+	"github.com/lokro/lokronet/internal/contacts"
 	"github.com/lokro/lokronet/internal/daemon"
 	"github.com/lokro/lokronet/internal/identity"
+	"github.com/lokro/lokronet/internal/mode"
 	"github.com/lokro/lokronet/internal/netcore"
 	"github.com/lokro/lokronet/internal/signal"
 )
@@ -39,14 +41,18 @@ func usage() {
   lokronet debug on|off
   lokronet mode [performance|normal|eco]
   lokronet mesh [on|off]
+  lokronet contacts add --name NAME --id ID
+  lokronet contacts list
+  lokronet contacts remove NAME
+  lokronet connections history
   lokronet ips
   lokronet logs [--tail N]`)
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
+		runMenu() // bares `lokronet` öffnet das Menü
+		return
 	}
 	var err error
 	switch os.Args[1] {
@@ -71,6 +77,10 @@ func main() {
 		err = cmdMode(os.Args[2:])
 	case "mesh":
 		err = cmdMesh(os.Args[2:])
+	case "contacts":
+		err = cmdContacts(os.Args[2:])
+	case "connections":
+		err = cmdConnections(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
 	case "ips":
@@ -102,6 +112,8 @@ func cmdSetup(args []string) error {
 	}
 	cfg.RendezvousURL = *rzURL
 	cfg.Endpoint = *endpoint
+	modeName, _ := mode.Parse(cfg.Mode)
+	cfg.Mode = string(modeName)
 	client := signal.NewClient(cfg.RendezvousURL)
 
 	var ident *identity.Identity
@@ -118,7 +130,7 @@ func cmdSetup(args []string) error {
 		if err != nil {
 			return err
 		}
-		peer, err := ident.ToPeer(publicEndpoint(cfg))
+		peer, err := ident.ToPeer(publicEndpoint(cfg), cfg.Mode)
 		if err != nil {
 			return err
 		}
@@ -235,35 +247,45 @@ func cmdStatus() error {
 
 func cmdConnect(args []string) error {
 	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-	id := fs.String("id", "", "Peer-ID (12 Ziffern)")
+	target := fs.String("id", "", "Peer-ID (12 Ziffern) oder Kontaktname")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if len(*id) != 12 {
-		return fmt.Errorf("--id mit 12 Ziffern angeben")
+	if *target == "" {
+		return fmt.Errorf("--id mit ID oder Kontaktname angeben")
 	}
-	data, err := ipcCall("POST", "/v1/connect", map[string]string{"id": *id})
+	id, err := resolveTarget(*target)
+	if err != nil {
+		return err
+	}
+	data, err := ipcCall("POST", "/v1/connect", map[string]string{"id": id})
 	if err != nil {
 		return err
 	}
 	fmt.Printf("connect ok (pending – Fingerprint out-of-band prüfen!)\n%s\n", string(data))
+	recordHistory(id)
 	return nil
 }
 
 func cmdPing(args []string) error {
 	fs := flag.NewFlagSet("ping", flag.ContinueOnError)
-	id := fs.String("id", "", "Peer-ID (12 Ziffern)")
+	target := fs.String("id", "", "Peer-ID (12 Ziffern) oder Kontaktname")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if len(*id) != 12 {
-		return fmt.Errorf("--id mit 12 Ziffern angeben")
+	if *target == "" {
+		return fmt.Errorf("--id mit ID oder Kontaktname angeben")
 	}
-	data, err := ipcCall("POST", "/v1/ping", map[string]string{"id": *id})
+	id, err := resolveTarget(*target)
+	if err != nil {
+		return err
+	}
+	data, err := ipcCall("POST", "/v1/ping", map[string]string{"id": id})
 	if err != nil {
 		return err
 	}
 	fmt.Printf("ping ok: %s\n", string(data))
+	recordHistory(id)
 	return nil
 }
 
@@ -395,6 +417,125 @@ func cmdMesh(args []string) error {
 	}
 	fmt.Printf("mesh: %s (gespeichert, wirkt beim Daemon-Start)\n", args[0])
 	return nil
+}
+
+// --- contacts / connections --------------------------------------------------
+// Adressbuch: Name statt ID merken + History der letzten 30 Tage.
+
+func cmdContacts(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("nutze: lokronet contacts [add|list|remove] ...")
+	}
+	store, err := contacts.Load()
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "add":
+		fs := flag.NewFlagSet("contacts add", flag.ContinueOnError)
+		name := fs.String("name", "", "Anzeigename (2-32 Zeichen, a-z 0-9 - _)")
+		id := fs.String("id", "", "Peer-ID (12 Ziffern)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *name == "" || *id == "" {
+			return fmt.Errorf("nutze: lokronet contacts add --name NAME --id ID")
+		}
+		fp := lookupFingerprint(*id) // best effort
+		if err := store.Add(*name, *id, fp); err != nil {
+			return err
+		}
+		fmt.Printf("kontakt %q -> %s gespeichert\n", *name, *id)
+		return nil
+	case "list":
+		if len(store.Contacts) == 0 {
+			fmt.Println("(keine Kontakte – `lokronet contacts add --name NAME --id ID`)")
+			return nil
+		}
+		for _, c := range store.Contacts {
+			fp := c.Fingerprint
+			if len(fp) > 16 {
+				fp = fp[:16] + "…"
+			}
+			fmt.Printf("  %-16s %s  fp:%s\n", c.Name, c.ID, fp)
+		}
+		return nil
+	case "remove":
+		if len(args) != 2 {
+			return fmt.Errorf("nutze: lokronet contacts remove NAME")
+		}
+		if err := store.Remove(args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("kontakt %q gelöscht\n", args[1])
+		return nil
+	default:
+		return fmt.Errorf("unbekannt: %q (add|list|remove)", args[0])
+	}
+}
+
+func cmdConnections(args []string) error {
+	if len(args) != 1 || args[0] != "history" {
+		return fmt.Errorf("nutze: lokronet connections history")
+	}
+	store, err := contacts.Load()
+	if err != nil {
+		return err
+	}
+	hist := store.List()
+	if len(hist) == 0 {
+		fmt.Println("(keine Verbindungen in den letzten 30 Tagen)")
+		return nil
+	}
+	for _, h := range hist {
+		alias := store.AliasFor(h.ID)
+		show := h.ID
+		if alias != "" {
+			show = fmt.Sprintf("%s (%s)", alias, h.ID)
+		}
+		fmt.Printf("  %-24s %dx  zuletzt %s\n", show, h.Count, time.Unix(h.LastSeen, 0).Format("02.01. 15:04"))
+	}
+	fmt.Println("(Einträge ohne Reconnect werden nach 30 Tagen automatisch gelöscht)")
+	return nil
+}
+
+// lookupFingerprint holt den Fingerprint best-effort ("" bei Fehler/offline).
+func lookupFingerprint(id string) string {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return ""
+	}
+	p, err := signal.NewClient(cfg.RendezvousURL).Lookup(id)
+	if err != nil {
+		return ""
+	}
+	return p.Fingerprint
+}
+
+// resolveTarget löst Name ODER ID auf (für connect/ping).
+func resolveTarget(nameOrID string) (string, error) {
+	store, err := contacts.Load()
+	if err != nil {
+		return "", err
+	}
+	id, alias, err := store.Resolve(nameOrID)
+	if err != nil {
+		return "", err
+	}
+	if alias != "" && alias != nameOrID {
+		fmt.Printf("(Kontakt %q -> %s)\n", alias, id)
+	}
+	return id, nil
+}
+
+// recordHistory speichert erfolgreiche Verbindungen (Fehler werden ignoriert,
+// History darf nie einen Connect kaputtmachen).
+func recordHistory(id string) {
+	store, err := contacts.Load()
+	if err != nil {
+		return
+	}
+	_ = store.RecordConnect(id, lookupFingerprint(id))
 }
 
 // --- ips ---------------------------------------------------------------------

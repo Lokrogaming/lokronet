@@ -214,11 +214,13 @@ func (d *Daemon) udpLoop() {
 // --- Realtime-Kanal: Heartbeat + Signaling-Poll --------------------------
 
 func (d *Daemon) heartbeatLoop() {
-	_ = d.sig.Heartbeat(d.ident.ID, d.publicEndpoint())
+	mn, _ := mode.Of(d.cfg.Mode)
+	_ = d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), string(mn))
 	for {
 		_, p := mode.Of(d.cfg.Mode)
 		time.Sleep(p.Heartbeat)
-		if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint()); err != nil {
+		mn, _ := mode.Of(d.cfg.Mode)
+		if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), string(mn)); err != nil {
 			d.emit("heartbeat fehlgeschlagen: %v", err)
 		}
 	}

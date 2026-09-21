@@ -97,6 +97,9 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if req.Endpoint != "" {
 		p.Endpoint = req.Endpoint
 	}
+	if req.Mode != "" {
+		p.Mode = req.Mode
+	}
 	p.LastSeen = time.Now().Unix()
 	s.peers[req.ID] = p
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
