@@ -25,9 +25,9 @@ import (
 // peerState: "pending" (gefunden, Fingerprint noch nicht bestätigt)
 // oder "trusted" (manuell bestätigt; Freigabe-Flow kommt in P1).
 type peerState struct {
-	Peer   proto.Peer `json:"peer"`
-	State  string     `json:"state"`
-	LastRTT int64     `json:"last_rtt_ms"`
+	Peer    proto.Peer `json:"peer"`
+	State   string     `json:"state"`
+	LastRTT int64      `json:"last_rtt_ms"`
 }
 
 // Daemon bündelt alles Laufende.

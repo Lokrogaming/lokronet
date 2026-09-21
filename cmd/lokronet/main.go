@@ -8,19 +8,18 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
+	"github.com/lokro/lokronet/internal/client"
 	"github.com/lokro/lokronet/internal/config"
 	"github.com/lokro/lokronet/internal/contacts"
 	"github.com/lokro/lokronet/internal/daemon"
 	"github.com/lokro/lokronet/internal/identity"
 	"github.com/lokro/lokronet/internal/mode"
 	"github.com/lokro/lokronet/internal/netcore"
+	"github.com/lokro/lokronet/internal/netinfo"
 	"github.com/lokro/lokronet/internal/signal"
 )
 
@@ -46,7 +45,9 @@ func usage() {
   lokronet contacts remove NAME
   lokronet connections history
   lokronet ips
-  lokronet logs [--tail N]`)
+  lokronet logs [--tail N]
+  lokronet dashboard [--dump]
+  lokronet dash            (Alias)`)
 }
 
 func main() {
@@ -85,6 +86,8 @@ func main() {
 		err = cmdLogs(os.Args[2:])
 	case "ips":
 		err = cmdIPs()
+	case "dashboard", "dash":
+		err = cmdDashboard(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -189,39 +192,14 @@ func cmdRendezvous(args []string) error {
 }
 
 // --- localhost-IPC-Helfer ---------------------------------------------------
+// Dünne Hülle um internal/client (einzige IPC-Stelle; TUI nutzt client direkt).
 
 func ipcCall(method, path string, body any) ([]byte, error) {
-	token, err := config.DaemonToken()
+	c, err := client.Dial()
 	if err != nil {
 		return nil, err
 	}
-	var rdr io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		rdr = bytes.NewReader(data)
-	}
-	req, err := http.NewRequest(method, "http://"+config.IPCAddr+path, rdr)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("X-Lokro-Token", token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("daemon nicht erreichbar – `lokronet daemon` gestartet? (%w)", err)
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 300 {
-		return data, fmt.Errorf("daemon %d: %s", resp.StatusCode, string(data))
-	}
-	return data, nil
+	return c.Call(method, path, body)
 }
 
 // --- status / connect / ping / debug / logs --------------------------------
@@ -540,67 +518,27 @@ func recordHistory(id string) {
 
 // --- ips ---------------------------------------------------------------------
 // Zeigt lokale + öffentliche IP (zum Weiterleiten an andere Peers).
-// Nur Stdlib: Interfaces lokal auslesen, Public-IP via ipify/ifconfig.me.
 
 func cmdIPs() error {
 	fmt.Println("lokale IPs:")
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return err
-	}
-	found := false
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, a := range addrs {
-			var ip net.IP
-			switch v := a.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
-				continue
-			}
-			fmt.Printf("  %-10s %s\n", iface.Name, ip.String())
-			found = true
-		}
-	}
-	if !found {
+	addrs := netinfo.LocalAddrs()
+	if len(addrs) == 0 {
 		fmt.Println("  (keine gefunden)")
 	}
-	fmt.Printf("öffentliche IP für Connections: %s\n", publicIP())
+	for _, a := range addrs {
+		fmt.Printf("  %-10s %s\n", a.Iface, a.IP)
+	}
+	if pub := netinfo.PublicIP(); pub != "" {
+		fmt.Printf("öffentliche IP für Connections: %s\n", pub)
+	} else {
+		fmt.Println("öffentliche IP für Connections: (unbekannt – offline?)")
+	}
 	fmt.Println("hinweis: IPv6 beim setup in eckige Klammern: --endpoint \"[ip]:port\"")
 	return nil
 }
 
-// publicIP fragt externe Dienste (5s-Timeout, tolerant bei Offline).
-func publicIP() string {
-	client := &http.Client{Timeout: 5 * time.Second}
-	for _, url := range []string{"https://api.ipify.org", "https://ifconfig.me"} {
-		resp, err := client.Get(url)
-		if err != nil {
-			continue
-		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 64))
-		resp.Body.Close()
-		if err != nil {
-			continue
-		}
-		if ip := strings.TrimSpace(string(data)); ip != "" && net.ParseIP(ip) != nil {
-			return ip
-		}
-	}
-	return "(unbekannt – offline?)"
-}
-
-func cmdLogs(args []string) error {	data, err := ipcCall("GET", "/v1/events", nil)
+func cmdLogs(args []string) error {
+	data, err := ipcCall("GET", "/v1/events", nil)
 	if err != nil {
 		return err
 	}

@@ -15,9 +15,9 @@ import (
 
 // Server hält Peers + Mailboxen im Speicher (MVP; P1: SQLite/Persistenz).
 type Server struct {
-	mu       sync.Mutex
-	peers    map[string]proto.Peer
-	mailbox  map[string][]proto.SignalMessage
+	mu      sync.Mutex
+	peers   map[string]proto.Peer
+	mailbox map[string][]proto.SignalMessage
 }
 
 // NewServer erzeugt einen leeren Server.

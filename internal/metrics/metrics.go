@@ -11,15 +11,15 @@ import (
 
 // Snapshot ist ein lesbarer Zählerstand (Bytes + Schnitt seit Daemon-Start).
 type Snapshot struct {
-	UDPIn     uint64 `json:"udp_in_bytes"`
-	UDPOut    uint64 `json:"udp_out_bytes"`
-	SigIn     uint64 `json:"sig_in_bytes"`
-	SigOut    uint64 `json:"sig_out_bytes"`
-	TotalIn   uint64 `json:"total_in_bytes"`
-	TotalOut  uint64 `json:"total_out_bytes"`
-	UptimeS   int64  `json:"uptime_s"`
-	AvgBpsIn  float64 `json:"avg_bps_in"`
-	AvgBpsOut float64 `json:"avg_bps_out"`
+	UDPIn     uint64                 `json:"udp_in_bytes"`
+	UDPOut    uint64                 `json:"udp_out_bytes"`
+	SigIn     uint64                 `json:"sig_in_bytes"`
+	SigOut    uint64                 `json:"sig_out_bytes"`
+	TotalIn   uint64                 `json:"total_in_bytes"`
+	TotalOut  uint64                 `json:"total_out_bytes"`
+	UptimeS   int64                  `json:"uptime_s"`
+	AvgBpsIn  float64                `json:"avg_bps_in"`
+	AvgBpsOut float64                `json:"avg_bps_out"`
 	Peers     map[string]PeerTraffic `json:"peers,omitempty"`
 }
 
