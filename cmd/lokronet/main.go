@@ -9,8 +9,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/lokro/lokronet/internal/config"
@@ -37,6 +39,7 @@ func usage() {
   lokronet debug on|off
   lokronet mode [performance|normal|eco]
   lokronet mesh [on|off]
+  lokronet ips
   lokronet logs [--tail N]`)
 }
 
@@ -70,6 +73,8 @@ func main() {
 		err = cmdMesh(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
+	case "ips":
+		err = cmdIPs()
 	default:
 		usage()
 		os.Exit(2)
@@ -390,6 +395,68 @@ func cmdMesh(args []string) error {
 	}
 	fmt.Printf("mesh: %s (gespeichert, wirkt beim Daemon-Start)\n", args[0])
 	return nil
+}
+
+// --- ips ---------------------------------------------------------------------
+// Zeigt lokale + öffentliche IP (zum Weiterleiten an andere Peers).
+// Nur Stdlib: Interfaces lokal auslesen, Public-IP via ipify/ifconfig.me.
+
+func cmdIPs() error {
+	fmt.Println("lokale IPs:")
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			var ip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			fmt.Printf("  %-10s %s\n", iface.Name, ip.String())
+			found = true
+		}
+	}
+	if !found {
+		fmt.Println("  (keine gefunden)")
+	}
+	fmt.Printf("öffentliche IP für Connections: %s\n", publicIP())
+	fmt.Println("hinweis: IPv6 beim setup in eckige Klammern: --endpoint \"[ip]:port\"")
+	return nil
+}
+
+// publicIP fragt externe Dienste (5s-Timeout, tolerant bei Offline).
+func publicIP() string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, url := range []string{"https://api.ipify.org", "https://ifconfig.me"} {
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+		if ip := strings.TrimSpace(string(data)); ip != "" && net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
+	return "(unbekannt – offline?)"
 }
 
 func cmdLogs(args []string) error {	data, err := ipcCall("GET", "/v1/events", nil)

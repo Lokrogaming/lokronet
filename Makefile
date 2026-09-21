@@ -23,21 +23,28 @@ build-all: build-linux
 	mkdir -p $(DIST)
 	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/lokronet_windows_amd64.exe ./cmd/lokronet
 
-# checksums.txt für den Installer (Verifikation per sha256).
+# Windows-Zip fürs Release (auf Linux: zip, auf Windows-Powershell: Compress-Archive).
+build-windows:
+	mkdir -p $(DIST)
+	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/lokronet_windows_amd64.exe ./cmd/lokronet
+	cd $(DIST) && zip -j lokronet_$(VERSION)_windows_amd64.zip lokronet_windows_amd64.exe
+
+# checksums.txt für die Installer (Verifikation per sha256).
 checksums:
-	cd $(DIST) && sha256sum lokronet_$(VERSION)_linux_*.tar.gz > checksums.txt
+	cd $(DIST) && sha256sum lokronet_$(VERSION)_linux_*.tar.gz lokronet_$(VERSION)_windows_*.zip > checksums.txt
 	cat $(DIST)/checksums.txt
 
 clean:
 	rm -rf $(DIST)
 
-# GitHub-Pages-Sync: published /install unter net.lokro.dev.
-# Quelle der Wahrheit bleibt deploy/install.sh (hier nur kopieren, nie editieren).
+# GitHub-Pages-Sync: published /install + /install.ps1 unter net.lokro.dev.
+# Quelle der Wahrheit bleibt deploy/ (hier nur kopieren, nie editieren).
 pages:
 	mkdir -p docs
 	cp deploy/install.sh docs/install
+	cp deploy/install.ps1 docs/install.ps1
 	touch docs/.nojekyll
-	@echo "docs/install synchronisiert (CNAME + index.html sind eingecheckt)"
+	@echo "docs/install + docs/install.ps1 synchronisiert (CNAME + index.html sind eingecheckt)"
 
 # Windows ohne make (Powershell):
 #   $v = (Get-Content VERSION).Trim()

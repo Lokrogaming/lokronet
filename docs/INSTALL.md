@@ -1,4 +1,29 @@
-# LokroNet auf Linux installieren
+# LokroNet auf Linux und Windows installieren
+
+## Windows (PowerShell, kein Admin nötig)
+
+Weiterleitbarer Einzeiler:
+
+```powershell
+irm https://net.lokro.dev/install.ps1 | iex
+```
+
+Der Installer lädt das signierte Zip aus dem GitHub-Release, prüft sha256,
+installiert nach `%LOCALAPPDATA%\LokroNet`, hängt es an den User-PATH,
+versucht eine Firewall-Regel für eingehendes Mesh-UDP anzulegen und zeigt
+zum Schluss deine IPs:
+
+```powershell
+lokronet ips   # lokale IPs + "Öffentliche IP für Connections"
+```
+
+Bis `net.lokro.dev/install.ps1` per DNS live ist, ersatzweise:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Lokrogaming/lokronet/main/deploy/install.ps1)))
+```
+
+## Für Nutzer (auf dem Linux-Server/PC)
 
 ## Für Nutzer (auf dem Linux-Server/PC)
 

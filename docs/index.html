@@ -15,6 +15,9 @@
 <h1>LokroNet <span class="warn">v0.1.0 (MVP)</span></h1>
 <p>Meshnet mit Terminal-CLI. Installieren auf Linux (amd64/arm64):</p>
 <pre>curl -fsSL https://net.lokro.dev/install | sudo bash</pre>
+<p>Oder auf Windows (PowerShell, kein Admin nötig):</p>
+<pre>irm https://net.lokro.dev/install.ps1 | iex</pre>
+<p>Danach zeigt der Installer deine IPs („Öffentliche IP für Connections“) — oder jederzeit: <code>lokronet ips</code>.</p>
 <p>Danach (als normaler User, nicht root):</p>
 <pre>lokronet setup --rendezvous http://DEIN-SERVER:8787
 lokronet daemon</pre>
