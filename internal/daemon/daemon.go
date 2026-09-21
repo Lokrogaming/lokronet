@@ -212,29 +212,63 @@ func (d *Daemon) udpLoop() {
 }
 
 // --- Realtime-Kanal: Heartbeat + Signaling-Poll --------------------------
+// Bei Dauerfehlern: exponentielles Backoff (3s…60s) + Sammel-Logging
+// (1., dann jede 10. Meldung + Entwarnung). Verhindert Log-Spam und
+// schont Bandbreite, wenn das Rendezvous länger weg ist.
+
+func backoffSleep(fails int) {
+	d := 3 * time.Second << (fails - 1)
+	if d > 60*time.Second {
+		d = 60 * time.Second
+	}
+	if d < 3*time.Second {
+		d = 3 * time.Second
+	}
+	time.Sleep(d)
+}
 
 func (d *Daemon) heartbeatLoop() {
 	mn, _ := mode.Of(d.cfg.Mode)
-	_ = d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), string(mn))
+	fails := 0
+	if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), string(mn)); err != nil {
+		fails = 1
+		d.emit("heartbeat fehlgeschlagen: %v", err)
+	}
 	for {
 		_, p := mode.Of(d.cfg.Mode)
 		time.Sleep(p.Heartbeat)
 		mn, _ := mode.Of(d.cfg.Mode)
 		if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), string(mn)); err != nil {
-			d.emit("heartbeat fehlgeschlagen: %v", err)
+			fails++
+			if fails == 1 || fails%10 == 0 {
+				d.emit("heartbeat fehlgeschlagen (%dx): %v", fails, err)
+			}
+			continue
+		}
+		if fails > 0 {
+			d.emit("heartbeat wieder ok nach %d Fehlern", fails)
+			fails = 0
 		}
 	}
 }
 
 func (d *Daemon) signalLoop() {
+	fails := 0
 	for {
 		_, p := mode.Of(d.cfg.Mode)
 		waitMs := int(p.PollWait / time.Millisecond)
 		msgs, err := d.sig.Poll(d.ident.ID, waitMs)
 		if err != nil {
-			d.emit("signal-poll Fehler: %v", err)
-			time.Sleep(3 * time.Second)
+			fails++
+			if fails == 1 || fails%10 == 0 {
+				d.emit("signal-poll Fehler (%dx): %v", fails, err)
+			}
+			backoffSleep(fails)
 			continue
+		}
+		if fails > 0 {
+			d.emit("signal-poll wieder ok nach %d Fehlern", fails)
+			fails = 0
 		}
 		for _, m := range msgs {
 			d.onSignal(m)
