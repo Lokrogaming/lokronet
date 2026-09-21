@@ -41,7 +41,11 @@ try {
 
   New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
   Expand-Archive -LiteralPath (Join-Path $tmp $zipName) -DestinationPath $InstallDir -Force
+  # Zip enthaelt lokronet_windows_<arch>.exe -> auf lokronet.exe normalisieren
+  $dl = Get-ChildItem -LiteralPath $InstallDir -Filter "lokronet*.exe" | Select-Object -First 1
+  if (-not $dl) { throw "kein lokronet.exe im Zip gefunden – Abbruch" }
   $exe = Join-Path $InstallDir "lokronet.exe"
+  if ($dl.FullName -ne $exe) { Move-Item -LiteralPath $dl.FullName -Destination $exe -Force }
   Write-Output "[lokronet] installiert: $exe"
 
   # Windows-Firewall: eingehendes Mesh-UDP erlauben (best effort, braucht Admin)
