@@ -95,7 +95,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/lokronet rendezvous --addr 127.0.0.1:8787
+ExecStart=/usr/local/bin/lokronet rendezvous --addr 0.0.0.0:8787
 DynamicUser=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
