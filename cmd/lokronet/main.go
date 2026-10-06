@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lokro/lokronet/internal/banner"
 	"github.com/lokro/lokronet/internal/client"
 	"github.com/lokro/lokronet/internal/config"
 	"github.com/lokro/lokronet/internal/contacts"
@@ -30,7 +31,7 @@ var Version = "0.1.0-dev"
 func usage() {
 	fmt.Println(`lokronet – Messenger + Dashboard (Mesh pausiert)
 
-  lokronet version
+  lokronet version [--short]
   lokronet setup [--rendezvous URL] [--port N] [--endpoint ip:port]
   lokronet daemon                       Backend starten (Vordergrund)
   lokronet rendezvous [--addr 127.0.0.1:8787]
@@ -65,6 +66,11 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "version":
+		if len(os.Args) > 2 && (os.Args[2] == "--short" || os.Args[2] == "-s") {
+			fmt.Println(Version)
+			return
+		}
+		banner.Print()
 		fmt.Println("lokronet", Version)
 		return
 	case "setup":
@@ -182,6 +188,7 @@ func cmdSetup(args []string) error {
 		return err
 	}
 	fp, _ := ident.Fingerprint()
+	banner.Print()
 	fmt.Printf("setup ok\n  id:          %s\n  fingerprint: %s\n  udp-port:    %d\n  endpoint:    %s\n  rendezvous:  %s\n", ident.ID, fp, cfg.UDPPort, publicEndpoint(cfg), cfg.RendezvousURL)
 	if !registered {
 		fmt.Printf("hinweis: rendezvous nicht erreicht (%v)\n", lastErr)

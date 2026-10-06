@@ -99,7 +99,6 @@ grep -q "$TARBALL" "$TMP/checksums.txt" || { echo "fehler: $TARBALL fehlt in che
 tar -xzf "$TMP/$TARBALL" -C "$TMP"
 install -m 0755 "$TMP/lokronet_linux_${GOARCH}" "$DEST_DIR/lokronet"
 echo "[lokronet] installiert: $DEST_DIR/lokronet"
-"$DEST_DIR/lokronet" version
 
 # --- rendezvous als System-Service (braucht keine Identität, server-seitig ok) ---
 if [ "$WITH_RENDEZVOUS" = "1" ]; then
@@ -157,13 +156,30 @@ EOF
 fi
 
 echo ""
-echo "[lokronet] fertig (Messenger v0.2, Mesh pausiert)."
+echo "=============================================="
+"$DEST_DIR/lokronet" version
+echo "----------------------------------------------"
+BIN_SIZE="$(stat -c%s "$DEST_DIR/lokronet" 2>/dev/null || echo 0)"
+echo "  Binary:    $DEST_DIR/lokronet"
+echo "  Groesse:   $BIN_SIZE Bytes (linux/$GOARCH)"
+echo "  Profil:    $([ "$WITH_RENDEZVOUS" = "1" ] && echo "--server (Rendezvous :8787)" || { [ "$WITH_DAEMON" = "1" ] && echo "--ui (User-Daemon)"; } || echo "nur Binary")"
 if [ "$WITH_RENDEZVOUS" = "1" ]; then
-  echo "  Server-Profil: Rendezvous läuft (:8787)."
-  echo "  Check: curl http://127.0.0.1:8787/healthz   # muss ok sagen"
-  echo "  Firewall: ufw allow 8787/tcp"
+  RZ_STATE="$(systemctl is-active lokro-rendezvous 2>/dev/null || echo unbekannt)"
+  echo "  Service:   lokro-rendezvous ($RZ_STATE)"
+  if curl -fsS -m 5 http://127.0.0.1:8787/healthz 2>/dev/null | grep -q ok; then
+    echo "  Health:    http://127.0.0.1:8787/healthz -> ok"
+  else
+    echo "  Health:    Rendezvous antwortet (noch) nicht – 'systemctl status lokro-rendezvous' pruefen"
+  fi
+  echo "  Firewall:  ufw allow 8787/tcp (sonst kommt kein Peer durch)"
 fi
-echo "  Nächste Schritte (ALS DEIN USER, nicht root):"
+if [ "$WITH_DAEMON" = "1" ]; then
+  echo "  Service:   lokronet-daemon (User-Service angelegt, siehe oben)"
+fi
+echo "=============================================="
+echo ""
+echo "[lokronet] fertig (Messenger, Mesh pausiert)."
+echo "  Naechste Schritte (ALS DEIN USER, nicht root):"
 echo "    lokronet setup --rendezvous http://DEIN-SERVER:8787"
 echo "    lokronet beacon            # Presence an Kontakte (läuft auch auto beim Daemon-Start)"
 echo "    lokronet chat open --id <ID|Name>   # E2E-Handshake (Session-Code vergleichen!)"

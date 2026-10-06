@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LokroNet v0.2 – E2E-Messenger für Linux &amp; Windows</title>
 <meta name="description" content="LokroNet v0.2: Ende-zu-Ende Messenger mit TUI und Desktop-App. Lokale History, Presence-Beacons, signierter Handshake. Kein Server sieht Klartext.">
+<link rel="icon" type="image/png" href="assets/logo.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
 tailwind.config = {
@@ -44,7 +45,8 @@ tailwind.config = {
 <header class="sticky top-0 z-40 border-b border-line bg-ink/85 backdrop-blur">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
     <a href="#top" class="flex items-center gap-2">
-      <span class="grid h-8 w-8 place-items-center rounded-lg bg-mint/15 font-mono text-sm font-bold text-mint">LN</span>
+      <img src="assets/logo.png" alt="LokroNet Logo" class="h-8 w-8 rounded-lg object-cover" onload="document.getElementById('ln-fallback').style.display='none'" onerror="this.style.display='none'">
+      <span id="ln-fallback" class="grid h-8 w-8 place-items-center rounded-lg bg-mint/15 font-mono text-sm font-bold text-mint">LN</span>
       <span class="font-semibold tracking-tight text-white">LokroNet <span class="ml-1 rounded bg-mint/15 px-1.5 py-0.5 font-mono text-xs text-mint">v0.2.1</span></span>
     </a>
     <nav class="hidden gap-5 text-sm text-slate-400 md:flex">
@@ -66,6 +68,7 @@ tailwind.config = {
 <section id="top" class="grid-bg border-b border-line">
   <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:py-24">
     <div>
+      <img src="assets/logo.png" alt="LokroNet – All in 1 Meshnet" class="mb-6 w-full max-w-md rounded-2xl" onerror="this.style.display='none'">
       <p class="mb-4 inline-flex items-center gap-2 rounded-full border border-mint/30 bg-mint/10 px-3 py-1 font-mono text-xs text-mint">
         <span class="h-1.5 w-1.5 rounded-full bg-mint"></span>
         v0.2.1 · Messenger-Fokus · Mesh pausiert

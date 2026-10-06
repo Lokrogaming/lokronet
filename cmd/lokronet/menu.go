@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/lokro/lokronet/internal/banner"
 )
 
 var menuIn = bufio.NewReader(os.Stdin)
@@ -49,7 +51,8 @@ func choose(title string, options []string) int {
 
 // runMenu ist die Haupt-Schleife für `lokronet` ohne Argumente.
 func runMenu() {
-	fmt.Println("LokroNet – Menü (beta). Tipp: Namen aus Kontakten statt IDs nutzen.")
+	banner.Print()
+	fmt.Println("LokroNet – Menü. Tipp: Namen aus Kontakten statt IDs nutzen.")
 	for {
 		switch choose("Hauptmenü", []string{
 			"Status anzeigen",

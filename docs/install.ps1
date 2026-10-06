@@ -77,6 +77,24 @@ finally {
   Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- Overview: was wurde installiert (reine ASCII-Ausgabe, PS5.1-sicher) ---
+$binSize = (Get-Item -LiteralPath $exe).Length
+$binMB = [math]::Round($binSize / 1MB, 1)
+$inPath = $env:Path -like "*$InstallDir*"
+$fw = $false
+try { Get-NetFirewallRule -DisplayName "LokroNet Mesh (UDP)" -ErrorAction Stop | Out-Null; $fw = $true } catch { }
+Write-Output ""
+Write-Output "=============================================="
+Write-Output " LOKROnet $Version installiert"
+Write-Output "----------------------------------------------"
+Write-Output " Binary:    $exe"
+Write-Output " Groesse:   $binMB MB (windows/$goarch)"
+Write-Output " PATH:      $(if ($inPath) { 'ok (diese + neue Terminals)' } else { 'manuell pruefen - ggf. neues Terminal oeffnen' })"
+Write-Output " Firewall:  $(if ($fw) { 'LokroNet Mesh (UDP) vorhanden' } else { 'keine Regel (Admin?) - UDP ggf. manuell freigeben' })"
+Write-Output "=============================================="
 Write-Output ""
 Write-Output "[lokronet] fertig. Weiter mit (neues Terminal, falls PATH neu):"
-Write-Output "  lokronet setup --rendezvous http://DEIN-SERVER:8787 --endpoint `"[DEINE-IP]:51820`""
+Write-Output "  lokronet setup --rendezvous http://DEIN-SERVER:8787"
+Write-Output "  lokronet beacon                              # Presence an Kontakte"
+Write-Output "  lokronet chat open --id <ID|Name>            # E2E-Handshake, Code vergleichen!"
+Write-Output "  lokronet dashboard                          # Terminal-UI mit Chat"

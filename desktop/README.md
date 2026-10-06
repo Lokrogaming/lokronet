@@ -35,6 +35,25 @@ Voraussetzung Linux: `sudo apt install -y libice6 libsm6 libfontconfig1` (Avalon
 je nach Distro) + .NET 9 Runtime nur bei framework-dependent Publish nötig
 (self-contained bringt sie mit).
 
+## App-Icon (Logo)
+
+Das Logo liegt **nicht** im Repo (Binary), sondern wird an diese Pfade gelegt:
+
+- `desktop/LokroNet.Desktop/Assets/icon.png` – Quelle (dein Logo als PNG)
+- `desktop/LokroNet.Desktop/Assets/icon.ico` – Windows-Exe-Icon (wird aktiv,
+  sobald die Datei existiert – `ApplicationIcon` in der `.csproj` ist bedingt)
+
+ICO erzeugen (eine der Optionen):
+
+```powershell
+# per Pillow (pip install pillow):
+python -c "from PIL import Image; Image.open('Assets/icon.png').save('Assets/icon.ico', sizes=[(16,16),(32,32),(48,48),(256,256)])"
+# oder: online-Konverter (PNG -> ICO), Datei nach Assets/icon.ico legen
+```
+
+Danach neu bauen/publishen – Exe, Taskleiste und Fenster nutzen das Icon.
+Linux-Desktop (`.desktop`-Datei + `icon.png`) folgt mit der Linux-App.
+
 ## IPC-Referenz (genutzt)
 
 - `GET /v1/status` – eigene ID, Daemon online?

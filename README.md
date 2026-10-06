@@ -1,5 +1,13 @@
 # LokroNet v0.2 – Messenger-Fokus (Mesh pausiert)
 
+<img src="docs/assets/logo.png" alt="LOKRONET – All in 1 Meshnet" width="560">
+
+```
+█    █▀▀█ █  █ █▀▀█ █▀▀█ █  █ ████ ████
+█    █  █ █ █  █▀ █ █  █ ██ █ █▀▀▀  █
+█▄▄▄ █▄▄█ █  █ █  █ █▄▄█ █  █ █▄▄▄  █
+```
+
 E2E-Messenger mit Terminal-UI + Desktop-App: Peers per 12-stelliger ID finden,
 Session-Handshake mit Signatur, Nachrichten Ende-zu-Ende verschlüsselt,
 Verlauf lokal geteilt zwischen TUI und Desktop.
