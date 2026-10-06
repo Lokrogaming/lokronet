@@ -40,6 +40,7 @@ func usage() {
   lokronet mode [performance|normal|eco]
   lokronet mesh [on|off]
   lokronet ips
+  lokronet dashboard [--addr 127.0.0.1:8080]
   lokronet logs [--tail N]`)
 }
 
@@ -75,6 +76,8 @@ func main() {
 		err = cmdLogs(os.Args[2:])
 	case "ips":
 		err = cmdIPs()
+	case "dashboard":
+		err = cmdDashboard(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -87,7 +90,11 @@ func main() {
 
 // --- setup ---------------------------------------------------------------
 // Erzeugt ID + Keys, wählt UDP-Port, registriert am Rendezvous.
-// Bei 409 (ID vergeben) wird bis zu 3x neu gewürfelt.
+// Nur bei 409 (ID vergeben) wird neu gewürfelt (max. 4 Versuche).
+// Ist das Rendezvous nicht erreichbar, wird offline eingerichtet
+// (Identity + Config werden gespeichert, der Daemon registriert
+// beim nächsten Start automatisch nach) – statt wie bisher alles
+// zu verwerfen und nur "connection refused" zu melden.
 func cmdSetup(args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	rzURL := fs.String("rendezvous", config.DefaultRendezvous, "Rendezvous-Basis-URL")
@@ -105,6 +112,8 @@ func cmdSetup(args []string) error {
 	client := signal.NewClient(cfg.RendezvousURL)
 
 	var ident *identity.Identity
+	registered := false
+	var lastErr error
 	for tries := 0; tries < 4; tries++ {
 		ident, err = identity.Generate()
 		if err != nil {
@@ -123,12 +132,21 @@ func cmdSetup(args []string) error {
 			return err
 		}
 		if err = client.Register(peer); err == nil {
+			registered = true
+			lastErr = nil
 			break
 		}
-		if tries == 3 {
-			return fmt.Errorf("registrierung fehlgeschlagen: %w", err)
+		lastErr = err
+		if !signal.IsConflict(err) {
+			// Kein ID-Konflikt, sondern z.B. Rendezvous down oder
+			// falsche URL – neu würfeln bringt nichts, also raus
+			// und offline einrichten (siehe unten).
+			break
 		}
-		// Vermutlich 409 -> neu würfeln.
+		// 409 -> Schleife würfelt neue ID.
+		if tries == 3 {
+			return fmt.Errorf("registrierung fehlgeschlagen (ID 4x vergeben): %w", err)
+		}
 	}
 	if err := ident.Save(); err != nil {
 		return err
@@ -138,8 +156,16 @@ func cmdSetup(args []string) error {
 	}
 	fp, _ := ident.Fingerprint()
 	fmt.Printf("setup ok\n  id:          %s\n  fingerprint: %s\n  udp-port:    %d\n  endpoint:    %s\n  rendezvous:  %s\n", ident.ID, fp, cfg.UDPPort, publicEndpoint(cfg), cfg.RendezvousURL)
+	if !registered {
+		fmt.Printf("hinweis: rendezvous nicht erreicht (%v)\n", lastErr)
+		fmt.Println("  offline eingerichtet – Identity ist gespeichert.")
+		fmt.Printf("  für lokalen Test: `lokronet rendezvous` in eigenem Terminal starten,\n")
+		fmt.Printf("  dann `lokronet daemon` (registriert automatisch nach). Oder URL prüfen:\n")
+		fmt.Printf("  `lokronet setup --rendezvous http://DEIN-SERVER:8787`\n")
+		return nil
+	}
 	fmt.Println("nächste Schritte:")
-	fmt.Println("  1) lokronet rendezvous   (in eigenem Terminal, lokaler Test-Server)")
+	fmt.Println("  1) lokronet rendezvous   (in eigenem Terminal, lokaler Test-Server – falls noch nicht läuft)")
 	fmt.Println("  2) lokronet daemon       (Backend starten)")
 	fmt.Println("  3) lokronet status")
 	return nil
@@ -487,3 +513,71 @@ func cmdLogs(args []string) error {	data, err := ipcCall("GET", "/v1/events", ni
 	}
 	return nil
 }
+
+// --- dashboard ---------------------------------------------------------------
+// Kleines lokales Dashboard (nur stdlib, nur localhost).
+// Proxy auf den Daemon (IPC mit Token bleibt serverseitig), der Browser
+// braucht kein Token. Hört bewusst nur auf Loopback (Default 127.0.0.1:8080).
+func cmdDashboard(args []string) error {
+	fs := flag.NewFlagSet("dashboard", flag.ContinueOnError)
+	addr := fs.String("addr", "127.0.0.1:8080", "Listen-Adresse (nur Loopback)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	host, _, err := net.SplitHostPort(*addr)
+	if err != nil {
+		return fmt.Errorf("ungültige --addr %q (Format ip:port): %w", *addr, err)
+	}
+	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+		return fmt.Errorf("dashboard hört aus Sicherheit nur auf Loopback (127.0.0.1/localhost/::1)")
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(dashboardHTML))
+	})
+	proxy := func(path string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			data, err := ipcCall("GET", path, nil)
+			if err != nil {
+				w.WriteHeader(http.StatusBadGateway)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(data)
+		}
+	}
+	mux.HandleFunc("/api/status", proxy("/v1/status"))
+	mux.HandleFunc("/api/events", proxy("/v1/events"))
+	fmt.Printf("dashboard auf http://%s (nur lokal, STRG+C zum Stoppen) …\n", *addr)
+	fmt.Println("hinweis: braucht laufenden `lokronet daemon` – sonst zeigt die Seite dessen Fehler.")
+	return http.ListenAndServe(*addr, mux)
+}
+
+const dashboardHTML = `<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LokroNet Dashboard</title>
+<style>body{background:#0d1117;color:#e6edf3;font-family:system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem}pre{background:#161b22;padding:1rem;border-radius:8px;overflow-x:auto}.err{color:#f0883e}.ok{color:#3fb950}</style>
+</head><body>
+<h1>LokroNet Dashboard <span style="font-size:.6em;color:#8b949e">lokal</span></h1>
+<p><button onclick="load()">Aktualisieren</button> <span id="state"></span></p>
+<pre id="out">lade …</pre>
+<h2>Events</h2>
+<pre id="events">lade …</pre>
+<script>
+async function load(){
+  const st=document.getElementById('state'), out=document.getElementById('out'), ev=document.getElementById('events');
+  st.textContent='lade …';
+  try{
+    let r=await fetch('/api/status'); let j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
+    out.textContent=JSON.stringify(j,null,2); st.innerHTML='<span class=ok>ok</span>';
+  }catch(e){ out.textContent='daemon offline? lokronet daemon starten.\n'+e; st.innerHTML='<span class=err>offline</span>'; }
+  try{
+    let r=await fetch('/api/events'); let j=await r.json();
+    ev.textContent=Array.isArray(j)? j.map(x=>'['+x.time+'] '+x.msg).join('\n')||'(keine Events – lokronet debug on)': JSON.stringify(j,null,2);
+  }catch(e){ ev.textContent='events: '+e; }
+}
+load(); setInterval(load,5000);
+</script></body></html>`

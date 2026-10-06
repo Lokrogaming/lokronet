@@ -214,14 +214,35 @@ func (d *Daemon) udpLoop() {
 // --- Realtime-Kanal: Heartbeat + Signaling-Poll --------------------------
 
 func (d *Daemon) heartbeatLoop() {
-	_ = d.sig.Heartbeat(d.ident.ID, d.publicEndpoint())
+	d.ensureRegistered()
 	for {
 		_, p := mode.Of(d.cfg.Mode)
 		time.Sleep(p.Heartbeat)
 		if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint()); err != nil {
+			if signal.IsNotFound(err) {
+				// Offline-Setup oder Server-Neustart (In-Memory): nachregistrieren.
+				d.ensureRegistered()
+				continue
+			}
 			d.emit("heartbeat fehlgeschlagen: %v", err)
 		}
 	}
+}
+
+// ensureRegistered meldet den Peer an, falls das Rendezvous ihn nicht kennt
+// (offline eingerichtetes Setup, Server mit leerem Speicher).
+func (d *Daemon) ensureRegistered() {
+	peer, err := d.ident.ToPeer(d.publicEndpoint())
+	if err != nil {
+		d.emit("register-vorbereitung fehlgeschlagen: %v", err)
+		return
+	}
+	if err := d.sig.Register(peer); err != nil {
+		// 409 mit GLEICHEM Key ist ok (bereits registriert) – Server behält Eintrag.
+		d.emit("register fehlgeschlagen: %v", err)
+		return
+	}
+	_ = d.sig.Heartbeat(d.ident.ID, d.publicEndpoint())
 }
 
 func (d *Daemon) signalLoop() {

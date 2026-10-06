@@ -4,9 +4,11 @@ package signal
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/lokro/lokronet/internal/metrics"
@@ -46,10 +48,40 @@ func (c *Client) drain(resp *http.Response) {
 	}
 }
 
+// RendezvousError behält den HTTP-Status (für 409-Retry vs. 404-Auto-Register).
+type RendezvousError struct {
+	Code int
+	Msg  string
+}
+
+func (e *RendezvousError) Error() string {
+	return fmt.Sprintf("rendezvous %d: %s", e.Code, e.Msg)
+}
+
+// IsConflict meldet 409 (ID vergeben -> neu würfeln).
+func IsConflict(err error) bool {
+	var re *RendezvousError
+	if ok := errors.As(err, &re); ok {
+		return re.Code == 409
+	}
+	// Fallback für ältere Fehlermeldungen ohne Typ.
+	return err != nil && strings.Contains(err.Error(), "rendezvous 409")
+}
+
+// IsNotFound meldet 404 (unbekannte ID -> neu registrieren).
+func IsNotFound(err error) bool {
+	var re *RendezvousError
+	if ok := errors.As(err, &re); ok {
+		return re.Code == 404
+	}
+	return err != nil && strings.Contains(err.Error(), "rendezvous 404")
+}
+
 func readErr(resp *http.Response) error {
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return fmt.Errorf("rendezvous %d: %s", resp.StatusCode, string(data))
+	// Body ist meist {"error":"..."} – roh übernehmen, kein JSON-Zwang.
+	return &RendezvousError{Code: resp.StatusCode, Msg: string(data)}
 }
 
 // Register meldet den Peer an. 409 = ID vergeben -> neu würfeln.

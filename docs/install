@@ -8,15 +8,15 @@
 #   curl -fsSL https://net.lokro.dev/install | bash -s -- --user
 #
 # Optionen:
-#   --version X     Version pinnen (Default: 0.1.0, oder LOKRO_VERSION)
-#   --base URL      Download-Basis (Default: https://net.lokro.dev/dl, oder LOKRO_BASE)
+#   --version X     Version pinnen (Default: 0.1.5, oder LOKRO_VERSION)
+#   --base URL      Download-Basis (Default: GitHub-Release-Assets vVERSION, oder LOKRO_BASE)
 #   --user          nach ~/.local/bin installieren (kein root, kein systemd-system)
 #   --rendezvous    zusätzlich System-Service lokro-rendezvous einrichten (:8787)
 #   --daemon        zusätzlich User-Service lokronet-daemon einrichten (systemd --user)
 #   --no-systemd    keine Services anfassen (nur Binary)
 set -euo pipefail
 
-VERSION="${LOKRO_VERSION:-0.1.0}"
+VERSION="${LOKRO_VERSION:-0.1.5}"
 # BASE wird bewusst erst NACH dem Argument-Parsing gesetzt (siehe unten),
 # damit --version / LOKRO_VERSION in die Default-URL einfließen.
 BASE="${LOKRO_BASE:-}"
@@ -109,7 +109,7 @@ WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
   systemctl enable --now lokro-rendezvous
-  echo "[lokronet] lokro-rendezvous läuft (127.0.0.1:8787 – hinter Reverse-Proxy/TLS legen, siehe docs/INSTALL.md)"
+  echo "[lokronet] lokro-rendezvous läuft (0.0.0.0:8787 – hinter Reverse-Proxy/TLS legen, siehe docs/INSTALL.md)"
 fi
 
 # --- daemon als User-Service (läuft mit DEINER Identität, nicht root) ---
@@ -142,6 +142,11 @@ fi
 
 echo ""
 echo "[lokronet] fertig. Nächste Schritte (ALS DEIN USER, nicht root):"
-echo "  lokronet setup --rendezvous https://net.lokro.dev"
+echo "  # Lokal-Test (Rendezvous zuerst in eigenem Terminal):"
+echo "  lokronet rendezvous"
+echo "  lokronet setup   # bzw. mit Server: lokronet setup --rendezvous http://DEIN-SERVER:8787 --endpoint \"[DEINE-IP]:51820\""
 echo "  lokronet debug on"
 echo "  lokronet daemon   # oder User-Service, siehe oben"
+echo "  # Dashboard (braucht laufenden Daemon): lokronet dashboard"
+echo "Hinweis: https://net.lokro.dev ist nur die statische Install-Seite (kein Signaling)."
+echo "  Das Rendezvous läuft auf DEINEM Server (:8787, siehe --rendezvous-Option)."
