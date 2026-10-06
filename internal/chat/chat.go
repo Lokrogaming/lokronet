@@ -138,6 +138,29 @@ func (m *Manager) emitSignals(sigs []outSignal) {
 
 func encodePub(pub [32]byte) string { return base64.StdEncoding.EncodeToString(pub[:]) }
 
+func trimPrefix(payload []byte) string {
+	s := string(payload)
+	if len(s) > len(UDPPrefix) && s[:len(UDPPrefix)] == UDPPrefix {
+		return s[len(UDPPrefix):]
+	}
+	return s
+}
+
+// persistAsync speichert die Inbox best-effort (darf nie den Chat blockieren).
+func (m *Manager) persistAsync() {
+	msgs := m.Inbox()
+	go func() { _ = SaveHistory(msgs) }()
+}
+
+// OnRelay öffnet eine über Signaling gerelayte Box (gleiche Crypto wie UDP).
+func (m *Manager) OnRelay(sealedB64 string) (*Message, bool) {
+	raw, err := base64.StdEncoding.DecodeString(sealedB64)
+	if err != nil {
+		return nil, false
+	}
+	return m.OnUDP(raw)
+}
+
 func decodePub(s string) ([32]byte, error) {
 	var pub [32]byte
 	raw, err := base64.StdEncoding.DecodeString(s)
@@ -210,6 +233,9 @@ func (m *Manager) Open(peerID string) (string, error) {
 
 // Send stellt zu (E2E-verschlüsselt) oder queued bis zum Handshake.
 // Leerer Text öffnet nur die Session.
+// Transport: UDP-Direct zuerst (serverlos), Fallback über Signaling-Relay
+// (msg-data, opaque Blob – Rendezvous sieht nur Cipher, kein Klartext).
+// Damit funktioniert der Messenger auch hinter NAT/CGNAT ohne Port-Forward.
 func (m *Manager) Send(peerID, text string) (string, error) {
 	if len([]rune(text)) > MaxTextLen {
 		return "", fmt.Errorf("max. %d Zeichen", MaxTextLen)
@@ -240,21 +266,36 @@ func (m *Manager) Send(peerID, text string) (string, error) {
 	payload, wm := sealLocked(s, text)
 	m.mu.Unlock()
 
-	if m.hooks.LookupEndpoint == nil || m.hooks.SendUDP == nil {
-		return "", fmt.Errorf("kein Transport (Mesh aus?)")
+	sealedB64 := ""
+	if raw, err := base64.StdEncoding.DecodeString(trimPrefix(payload)); err == nil {
+		_ = raw
+		sealedB64 = trimPrefix(payload)
 	}
-	ep, ok := m.hooks.LookupEndpoint(peerID)
-	if !ok || ep == "" {
-		return "", fmt.Errorf("kein Endpoint für %s", peerID)
+
+	// 1) UDP-Direct versuchen (wenn Endpoint bekannt + Mesh/UDP verfügbar).
+	if m.hooks.LookupEndpoint != nil && m.hooks.SendUDP != nil {
+		if ep, ok := m.hooks.LookupEndpoint(peerID); ok && ep != "" {
+			if err := m.hooks.SendUDP(ep, payload); err == nil {
+				m.mu.Lock()
+				m.appendInboxLocked(Message{From: m.selfID, To: peerID, Text: text, Ts: wm.Ts, Outgoing: true, Seq: wm.Seq})
+				s.updated = time.Now()
+				m.mu.Unlock()
+				m.persistAsync()
+				return "sent (direct)", nil
+			}
+		}
 	}
-	if err := m.hooks.SendUDP(ep, payload); err != nil {
-		return "", err
+	// 2) Relay über Signaling (funktioniert auch mit Mesh aus / ohne UDP-Port).
+	if m.hooks.SendSignal != nil && sealedB64 != "" {
+		m.hooks.SendSignal(peerID, "msg-data", sealedB64)
+		m.mu.Lock()
+		m.appendInboxLocked(Message{From: m.selfID, To: peerID, Text: text, Ts: wm.Ts, Outgoing: true, Seq: wm.Seq})
+		s.updated = time.Now()
+		m.mu.Unlock()
+		m.persistAsync()
+		return "sent (relay)", nil
 	}
-	m.mu.Lock()
-	m.appendInboxLocked(Message{From: m.selfID, To: peerID, Text: text, Ts: wm.Ts, Outgoing: true, Seq: wm.Seq})
-	s.updated = time.Now()
-	m.mu.Unlock()
-	return "sent", nil
+	return "", fmt.Errorf("kein Transport (weder UDP noch Relay)")
 }
 
 // OnHello verarbeitet ein Hello (Antwort-Ack wird nach Unlock verschickt).
@@ -308,17 +349,28 @@ func (m *Manager) OnAck(from, ackB64 string) error {
 
 // OnUDP öffnet eingehende Box-Bytes (probiert alle Sessions, kein
 // Metadaten-Leak im Protokoll). Replay/Duplikate werden verworfen.
-// Hook-frei, daher lock-sicher.
+// Hook-frei, daher lock-sicher. Persistiert bei Treffer (nach Unlock).
 func (m *Manager) OnUDP(sealed []byte) (*Message, bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	var found *Message
 	for _, s := range m.sessions {
 		if !s.ready {
 			continue
 		}
 		if msg, ok := m.tryOpenLocked(s, sealed); ok {
-			return msg, true
+			found = msg
+			break
 		}
+	}
+	var toSave []Message
+	if found != nil {
+		toSave = make([]Message, len(m.inbox))
+		copy(toSave, m.inbox)
+	}
+	m.mu.Unlock()
+	if found != nil {
+		go func() { _ = SaveHistory(toSave) }()
+		return found, true
 	}
 	return nil, false
 }

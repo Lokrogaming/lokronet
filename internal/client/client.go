@@ -252,7 +252,7 @@ func (c *Client) ChatInbox() ([]ChatMessage, error) {
 }
 
 // ChatSend öffnet die Session (leerer Text) oder schickt E2E-verschlüsselt.
-// Antwort: "sent" | "queued (Handshake läuft)" | "bereit (...)".
+// Antwort: "sent (direct)" | "sent (relay)" | "queued (Handshake läuft)" | "bereit (...)".
 func (c *Client) ChatSend(id, text string) (string, error) {
 	data, err := c.Call("POST", "/v1/chat/send", map[string]string{"id": id, "text": text})
 	if err != nil {
@@ -265,4 +265,57 @@ func (c *Client) ChatSend(id, text string) (string, error) {
 		return "", err
 	}
 	return v.Status, nil
+}
+
+// PresenceEntry: online/offline pro Peer (aus Daemon-Beacons).
+type PresenceEntry struct {
+	Online   bool   `json:"online"`
+	LastSeen int64  `json:"last_seen"`
+	Endpoint string `json:"endpoint"`
+	Mode     string `json:"mode"`
+}
+
+// Presence holt GET /v1/presence.
+func (c *Client) Presence() (map[string]PresenceEntry, error) {
+	data, err := c.Call("GET", "/v1/presence", nil)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]PresenceEntry
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		m = map[string]PresenceEntry{}
+	}
+	return m, nil
+}
+
+// ChatStats holt GET /v1/chat/stats (pro Peer count/max_ts, für Sync-Debug).
+func (c *Client) ChatStats() ([]ChatStats, error) {
+	data, err := c.Call("GET", "/v1/chat/stats", nil)
+	if err != nil {
+		return nil, err
+	}
+	var s []ChatStats
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// ChatStats spiegelt chat.PeerStats.
+type ChatStats struct {
+	PeerID string `json:"peer_id"`
+	Count  int    `json:"count"`
+	MaxTs  int64  `json:"max_ts"`
+}
+
+// Beacon stößt einen Presence-Beacon an ("" = an alle Kontakte).
+func (c *Client) Beacon(id string) (string, error) {
+	data, err := c.Call("POST", "/v1/beacon", map[string]string{"id": id})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }

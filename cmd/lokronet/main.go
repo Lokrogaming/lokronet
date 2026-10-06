@@ -38,7 +38,9 @@ func usage() {
   lokronet chat --id <ID|Name> --text "..."   E2E-Nachricht senden (Handshake auto)
   lokronet chat open --id <ID|Name>           Session-Handshake anstoßen
   lokronet chat sessions                      Sessions (Session-Code zum Vergleichen)
-  lokronet chat inbox [--tail N]              Verlauf (nur RAM, kein Klartext-Log)
+  lokronet chat inbox [--tail N]              Verlauf (lokal persistiert, TUI+Desktop teilen ihn)
+  lokronet presence                         Online-Status aus Beacons (Kontakte)
+  lokronet beacon [--id <ID|Name>]          Health-Beacon senden (ohne Angabe: alle)
   lokronet connect --id <12 Ziffern>
   lokronet ping --id <12 Ziffern>
   lokronet debug on|off
@@ -93,6 +95,10 @@ func main() {
 		err = cmdIPs()
 	case "chat":
 		err = cmdChat(os.Args[2:])
+	case "presence":
+		err = cmdPresence()
+	case "beacon":
+		err = cmdBeacon(os.Args[2:])
 	case "dashboard", "dash":
 		err = cmdDashboard(os.Args[2:])
 	case "dashboard-web":
@@ -722,4 +728,67 @@ func cmdChat(args []string) error {
 		}
 		return fmt.Errorf("nutze: lokronet chat [open|sessions|inbox|send] --id ID [--text ...]")
 	}
+}
+
+// --- presence / beacon -----------------------------------------------------
+// Online-Status aus Health-Beacons (Daemon-Loop schickt beim Boot + periodisch).
+
+func cmdPresence() error {
+	c, err := client.Dial()
+	if err != nil {
+		return err
+	}
+	m, err := c.Presence()
+	if err != nil {
+		return err
+	}
+	store, _ := contacts.Load()
+	if len(m) == 0 {
+		fmt.Println("(keine Beacons – `lokronet beacon` sendet, Gegenstelle braucht laufenden Daemon)")
+		return nil
+	}
+	for id, p := range m {
+		alias := ""
+		if store != nil {
+			if a := store.AliasFor(id); a != "" {
+				alias = " (" + a + ")"
+			}
+		}
+		state := "offline"
+		if p.Online {
+			state = "online"
+		}
+		fmt.Printf("  %-14s %s%s  zuletzt %s\n", id, state, alias, time.Unix(p.LastSeen, 0).Format("15:04:05"))
+	}
+	return nil
+}
+
+func cmdBeacon(args []string) error {
+	fs := flag.NewFlagSet("beacon", flag.ContinueOnError)
+	target := fs.String("id", "", "Peer-ID oder Kontaktname (leer = alle Kontakte)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	id := ""
+	if *target != "" {
+		var err error
+		id, err = resolveTarget(*target)
+		if err != nil {
+			return err
+		}
+	}
+	c, err := client.Dial()
+	if err != nil {
+		return err
+	}
+	out, err := c.Beacon(id)
+	if err != nil {
+		return err
+	}
+	if id == "" {
+		fmt.Printf("beacon an alle gesendet %s\n", out)
+	} else {
+		fmt.Printf("beacon an %s gesendet %s\n", id, out)
+	}
+	return nil
 }

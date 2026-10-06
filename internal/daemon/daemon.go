@@ -47,6 +47,7 @@ type Daemon struct {
 
 	mu       sync.Mutex
 	peers    map[string]*peerState
+	presence map[string]*presenceInfo
 	pongWait map[string]chan struct{} // nonce -> signal
 }
 
@@ -76,11 +77,17 @@ func New() (*Daemon, error) {
 		m:        m,
 		lim:      &senderLimiter{last: time.Now()},
 		peers:    make(map[string]*peerState),
+		presence: make(map[string]*presenceInfo),
 		pongWait: make(map[string]chan struct{}),
 	}
 	// Chat-Hooks (werden ohne Chat-Lock gerufen; Daemon-Locks ok).
+	// msg-hello wird mit der langfristen Ed25519-Identität signiert
+	// (Session-Token: ephemeral X25519 + Signatur, out-of-band Code-Vergleich).
 	d.chat = chat.NewManager(ident.ID, chat.Hooks{
 		SendSignal: func(to, typ, payload string) {
+			if typ == "msg-hello" || typ == "msg-hello-ack" {
+				payload = d.signHello(payload)
+			}
 			_ = d.sig.Send(proto.SignalMessage{From: d.ident.ID, To: to, Type: typ, Payload: payload})
 		},
 		SendUDP: func(endpoint string, data []byte) error {
@@ -98,6 +105,10 @@ func New() (*Daemon, error) {
 		},
 		LookupEndpoint: d.chatEndpoint,
 	})
+	// Lokale History laden (geteilt mit TUI/Desktop via IPC).
+	if hist := chat.LoadHistory(); len(hist) > 0 {
+		d.chat.ImportHistory(hist)
+	}
 	return d, nil
 }
 
@@ -204,6 +215,7 @@ func (d *Daemon) Start() error {
 
 	go d.heartbeatLoop()
 	go d.signalLoop()
+	go d.beaconLoop()
 
 	return d.serveIPC()
 }
@@ -363,18 +375,41 @@ func (d *Daemon) onSignal(m proto.SignalMessage) {
 			go d.punch(peer.Endpoint, 3)
 		}
 	case "msg-hello":
-		// Messenger-Handshake (Antwort-Ack verschickt der Manager selbst).
-		if err := d.chat.OnHello(m.From, m.Payload); err != nil {
+		// Signierter Handshake (v2) mit Legacy-Fallback.
+		pub, signed, ok := d.verifyHello(m.From, m.Payload)
+		if !ok {
+			d.emit("chat-hello von %s: Signatur ungültig", m.From)
+			return
+		}
+		if err := d.chat.OnHello(m.From, pub); err != nil {
 			d.emit("chat-hello von %s abgelehnt: %v", m.From, err)
+		} else if signed {
+			d.emit("chat-handshake mit %s (signiert)", m.From)
 		} else {
-			d.emit("chat-handshake mit %s", m.From)
+			d.emit("chat-handshake mit %s (legacy, Code vergleichen!)", m.From)
 		}
 	case "msg-hello-ack":
-		if err := d.chat.OnAck(m.From, m.Payload); err != nil {
-			d.emit("chat-ack von %s abgelehnt: %v", m.From, err)
-		} else {
-			d.emit("chat-bereit mit %s", m.From)
+		pub, signed, ok := d.verifyHello(m.From, m.Payload)
+		if !ok {
+			d.emit("chat-ack von %s: Signatur ungültig", m.From)
+			return
 		}
+		if err := d.chat.OnAck(m.From, pub); err != nil {
+			d.emit("chat-ack von %s abgelehnt: %v", m.From, err)
+		} else if signed {
+			d.emit("chat-bereit mit %s (signiert)", m.From)
+		} else {
+			d.emit("chat-bereit mit %s (legacy)", m.From)
+		}
+	case "msg-data":
+		// Relay-Transport (E2E-Blob, Rendezvous sieht nur Cipher).
+		if msg, ok := d.chat.OnRelay(m.Payload); ok && msg != nil {
+			d.emit("chat-nachricht von %s (relay)", msg.From)
+		}
+	case "beacon":
+		d.onBeacon(m.From, m.Payload)
+	case "beacon-ack":
+		d.onBeaconAck(m.From, m.Payload)
 	}
 }
 
@@ -624,12 +659,35 @@ func (d *Daemon) serveIPC() error {
 		}
 		writeJSON(w, map[string]any{"rtt_ms": rtt})
 	}))
-	// Messenger (nur via Dashboard; kein CLI-Command).
+	// Messenger (CLI + TUI + Desktop teilen sich diese IPC – Single Source of Truth).
 	mux.HandleFunc("/v1/chat/sessions", d.checkToken(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, d.chat.Sessions())
 	}))
 	mux.HandleFunc("/v1/chat/inbox", d.checkToken(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, d.chat.Inbox())
+	}))
+	mux.HandleFunc("/v1/chat/stats", d.checkToken(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, d.chat.Stats())
+	}))
+	mux.HandleFunc("/v1/presence", d.checkToken(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, d.presenceSweep())
+	}))
+	mux.HandleFunc("/v1/beacon", d.checkToken(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			var body struct {
+				ID string `json:"id"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.ID != "" {
+				go d.sendBeacon(body.ID)
+				writeJSON(w, map[string]string{"status": "beacon sent"})
+				return
+			}
+			go d.beaconAll()
+			writeJSON(w, map[string]string{"status": "beacon all"})
+			return
+		}
+		writeJSON(w, d.presenceSweep())
 	}))
 	mux.HandleFunc("/v1/chat/send", d.checkToken(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
