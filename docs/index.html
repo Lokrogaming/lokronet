@@ -1,32 +1,315 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" class="scroll-smooth">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LokroNet – Install</title>
+<title>LokroNet v0.2 – E2E-Messenger für Linux &amp; Windows</title>
+<meta name="description" content="LokroNet v0.2: Ende-zu-Ende Messenger mit TUI und Desktop-App. Lokale History, Presence-Beacons, signierter Handshake. Kein Server sieht Klartext.">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink: '#0b0f14',
+        panel: '#11161d',
+        line: '#1f2937',
+        mint: '#34d399',
+        sky2: '#58a6ff',
+        warn: '#f0b429',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'Segoe UI', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace'],
+      }
+    }
+  }
+}
+</script>
 <style>
-  body { background: #0d1117; color: #e6edf3; font-family: system-ui, sans-serif; max-width: 720px; margin: 4rem auto; padding: 0 1rem; }
-  pre { background: #161b22; padding: 1rem; border-radius: 8px; overflow-x: auto; }
-  a { color: #58a6ff; }
-  .warn { color: #d29922; }
+  body { background: #0b0f14; }
+  .glow { box-shadow: 0 0 60px -18px rgba(52, 211, 153, .45); }
+  .codebox { position: relative; }
+  .copybtn { position: absolute; top: .5rem; right: .5rem; }
+  .grid-bg {
+    background-image: radial-gradient(circle at 20% 0%, rgba(52,211,153,.12), transparent 45%),
+                      radial-gradient(circle at 85% 10%, rgba(88,166,255,.12), transparent 40%);
+  }
+  pre { white-space: pre-wrap; word-break: break-word; }
 </style>
 </head>
-<body>
-<h1>LokroNet <span class="warn">v0.1.5 (MVP)</span></h1>
-<p>Meshnet mit Terminal-CLI. Installieren auf Linux (amd64/arm64):</p>
-<pre>curl -fsSL https://net.lokro.dev/install | sudo bash</pre>
-<p>Oder auf Windows (PowerShell, kein Admin nötig):</p>
+<body class="text-slate-200 font-sans antialiased">
+
+<!-- NAV -->
+<header class="sticky top-0 z-40 border-b border-line bg-ink/85 backdrop-blur">
+  <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+    <a href="#top" class="flex items-center gap-2">
+      <span class="grid h-8 w-8 place-items-center rounded-lg bg-mint/15 font-mono text-sm font-bold text-mint">LN</span>
+      <span class="font-semibold tracking-tight text-white">LokroNet <span class="ml-1 rounded bg-mint/15 px-1.5 py-0.5 font-mono text-xs text-mint">v0.2.0</span></span>
+    </a>
+    <nav class="hidden gap-5 text-sm text-slate-400 md:flex">
+      <a href="#install" class="hover:text-white">Installation</a>
+      <a href="#features" class="hover:text-white">Features</a>
+      <a href="#start" class="hover:text-white">Schnellstart</a>
+      <a href="#cli" class="hover:text-white">CLI</a>
+      <a href="#sicherheit" class="hover:text-white">Sicherheit</a>
+      <a href="#downloads" class="hover:text-white">Downloads</a>
+    </nav>
+    <div class="flex gap-2">
+      <a href="https://github.com/Lokrogaming/lokronet" class="rounded-lg border border-line px-3 py-1.5 text-sm text-slate-300 hover:border-slate-500">GitHub</a>
+      <a href="https://github.com/Lokrogaming/lokronet/releases/tag/v0.2.0" class="rounded-lg bg-mint px-3 py-1.5 text-sm font-semibold text-ink hover:brightness-110">Release v0.2.0</a>
+    </div>
+  </div>
+</header>
+
+<!-- HERO -->
+<section id="top" class="grid-bg border-b border-line">
+  <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2 md:py-24">
+    <div>
+      <p class="mb-4 inline-flex items-center gap-2 rounded-full border border-mint/30 bg-mint/10 px-3 py-1 font-mono text-xs text-mint">
+        <span class="h-1.5 w-1.5 rounded-full bg-mint"></span>
+        v0.2.0 · Messenger-Fokus · Mesh pausiert
+      </p>
+      <h1 class="text-4xl font-extrabold leading-tight tracking-tight text-white md:text-5xl">
+        E2E-Messenger für<br>Linux &amp; Windows.
+      </h1>
+      <p class="mt-5 max-w-xl text-slate-400">
+        12-stellige ID, signierter Session-Handshake, NaCl-box Nachrichten.
+        Verlauf <strong class="text-slate-200">lokal geteilt</strong> zwischen Terminal-UI,
+        CLI und Desktop-App. Das Rendezvous sieht nur Discovery + opake Blobs –
+        <strong class="text-slate-200">keine DB, kein Klartext auf Servern.</strong>
+      </p>
+      <div class="mt-7 flex flex-wrap gap-3">
+        <a href="#install" class="glow rounded-xl bg-mint px-5 py-2.5 font-semibold text-ink hover:brightness-110">Installieren</a>
+        <a href="https://github.com/Lokrogaming/lokronet/releases/download/v0.2.0/LokroNet-Desktop-0.2.0-win-x64.zip" class="rounded-xl border border-line px-5 py-2.5 text-slate-200 hover:border-slate-500">Desktop für Windows laden</a>
+      </div>
+      <dl class="mt-8 grid max-w-md grid-cols-3 gap-4 text-center">
+        <div class="rounded-xl border border-line bg-panel p-3">
+          <dt class="font-mono text-xs text-slate-500">Plattformen</dt>
+          <dd class="font-semibold text-white">Win · Linux amd64/arm64</dd>
+        </div>
+        <div class="rounded-xl border border-line bg-panel p-3">
+          <dt class="font-mono text-xs text-slate-500">UI</dt>
+          <dd class="font-semibold text-white">TUI + Desktop</dd>
+        </div>
+        <div class="rounded-xl border border-line bg-panel p-3">
+          <dt class="font-mono text-xs text-slate-500">Server-DB</dt>
+          <dd class="font-semibold text-mint">keine</dd>
+        </div>
+      </dl>
+    </div>
+    <div class="rounded-2xl border border-line bg-panel p-4">
+      <div class="mb-2 flex items-center justify-between">
+        <p class="font-mono text-xs text-slate-500">schnellstart · server</p>
+        <span class="rounded bg-mint/15 px-2 py-0.5 font-mono text-xs text-mint">copy-paste</span>
+      </div>
+      <div class="codebox rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --server">kopieren</button>
+<pre class="text-slate-200">curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --server
+curl http://127.0.0.1:8787/healthz   # -&gt; ok
+lokronet setup --rendezvous http://DEIN-SERVER:8787
+lokronet chat open --id 123456789012</pre>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-3 font-mono text-xs">
+        <div class="rounded-xl bg-ink p-3"><span class="text-mint">●</span> <span class="text-slate-300">beacon auto beim Boot</span></div>
+        <div class="rounded-xl bg-ink p-3"><span class="text-sky2">◆</span> <span class="text-slate-300">Session-Code vergleichen</span></div>
+        <div class="rounded-xl bg-ink p-3"><span class="text-mint">direct</span> <span class="text-slate-300">UDP, sonst Relay</span></div>
+        <div class="rounded-xl bg-ink p-3"><span class="text-sky2">shared</span> <span class="text-slate-300">History: TUI = Desktop</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- INSTALL -->
+<section id="install" class="mx-auto max-w-6xl px-4 py-16">
+  <h2 class="text-2xl font-bold text-white">Installation</h2>
+  <p class="mt-2 text-slate-400">Ein Befehl pro Ziel. Installer prüfen sha256 gegen <span class="font-mono text-slate-300">checksums.txt</span> und brechen bei Mismatch ab.</p>
+  <div class="mt-8 grid gap-4 md:grid-cols-2">
+    <div class="rounded-2xl border border-line bg-panel p-5">
+      <p class="font-mono text-xs uppercase tracking-wider text-mint">Server · Ubuntu headless</p>
+      <h3 class="mt-1 font-semibold text-white">Rendezvous :8787 als System-Service</h3>
+      <div class="codebox mt-3 rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --server">kopieren</button>
+<pre>curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --server</pre>
+      </div>
+      <p class="mt-3 font-mono text-xs text-slate-500">check: curl http://127.0.0.1:8787/healthz · firewall: ufw allow 8787/tcp</p>
+    </div>
+    <div class="rounded-2xl border border-line bg-panel p-5">
+      <p class="font-mono text-xs uppercase tracking-wider text-mint">Linux-PC · mit UI</p>
+      <h3 class="mt-1 font-semibold text-white">Binary + User-Daemon + TUI</h3>
+      <div class="codebox mt-3 rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --ui">kopieren</button>
+<pre>curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --ui</pre>
+      </div>
+      <p class="mt-3 font-mono text-xs text-slate-500">ohne root: curl … | bash -s -- --user · version pinnen: --version=0.2.0</p>
+    </div>
+    <div class="rounded-2xl border border-line bg-panel p-5">
+      <p class="font-mono text-xs uppercase tracking-wider text-sky2">Windows · PowerShell</p>
+      <h3 class="mt-1 font-semibold text-white">Kein Admin nötig, User-PATH</h3>
+      <div class="codebox mt-3 rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="irm https://net.lokro.dev/install.ps1 | iex">kopieren</button>
 <pre>irm https://net.lokro.dev/install.ps1 | iex</pre>
-<p>Danach zeigt der Installer deine IPs („Öffentliche IP für Connections“) — oder jederzeit: <code>lokronet ips</code>.</p>
-<p>Danach (als normaler User, nicht root):</p>
+      </div>
+      <p class="mt-3 font-mono text-xs text-slate-500">gepinnt: … | iex mit -Version 0.2.0 (siehe Release)</p>
+    </div>
+    <div class="rounded-2xl border border-mint/30 bg-panel p-5">
+      <p class="font-mono text-xs uppercase tracking-wider text-mint">Desktop · nur Windows</p>
+      <h3 class="mt-1 font-semibold text-white">Avalonia-App, gleiche Chats wie TUI</h3>
+      <p class="mt-2 text-sm text-slate-400">ZIP laden, entpacken, Daemon laufen lassen, <span class="font-mono text-slate-200">LokroNet.Desktop.exe</span> starten. Linux-Desktop folgt später.</p>
+      <a href="https://github.com/Lokrogaming/lokronet/releases/download/v0.2.0/LokroNet-Desktop-0.2.0-win-x64.zip" class="mt-3 inline-block rounded-xl bg-mint px-4 py-2 text-sm font-semibold text-ink hover:brightness-110">LokroNet-Desktop-0.2.0-win-x64.zip</a>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" class="border-y border-line bg-panel/40">
+  <div class="mx-auto max-w-6xl px-4 py-16">
+    <h2 class="text-2xl font-bold text-white">Warum LokroNet</h2>
+    <div class="mt-8 grid gap-4 md:grid-cols-3">
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h3 class="font-semibold text-white">Signierter Handshake</h3>
+        <p class="mt-2 text-sm text-slate-400">Ephemerer X25519 pro Peer-Paar, mit Ed25519-Identität signiert. Session-Code out-of-band vergleichen – kein Trust-on-first-Use im Blindflug.</p>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h3 class="font-semibold text-white">Geteilte History</h3>
+        <p class="mt-2 text-sm text-slate-400">Der Daemon hält <span class="font-mono">~/.lokronet/chat-history.json</span> (0600). TUI, CLI und Desktop lesen dieselbe IPC – überall derselbe Stand.</p>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h3 class="font-semibold text-white">Presence-Beacons</h3>
+        <p class="mt-2 text-sm text-slate-400">Boot-Beacon an alle Kontakte, danach periodisch. Online-Anzeige aus Beacons, Retry inklusive – offline wird ehrlich als offline gezeigt.</p>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h3 class="font-semibold text-white">Direct zuerst, Relay als Fallback</h3>
+        <p class="mt-2 text-sm text-slate-400">UDP-Direct wenn erreichbar, sonst <span class="font-mono">msg-data</span>-Relay über Rendezvous. Der Relay sieht nur Cipher – kein Klartext.</p>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h3 class="font-semibold text-white">Zwei Dashboards</h3>
+        <p class="mt-2 text-sm text-slate-400"><span class="font-mono">lokronet dashboard</span> (Terminal-UI mit Chat) für den Alltag, <span class="font-mono">dashboard-web</span> (nur Loopback) für Server-Checks.</p>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-5">
+        <h3 class="font-semibold text-white">Keine Server-DB</h3>
+        <p class="mt-2 text-sm text-slate-400">Mailbox nur In-Memory (cap 50), keine Persistenz serverseitig. Sync-Prinzip: neueste Timestamps gewinnen.</p>
+      </div>
+    </div>
+    <div class="mt-8 rounded-2xl border border-line bg-ink p-5 font-mono text-xs text-slate-400">
+      <p class="mb-2 text-slate-500">fluss: app → daemon (localhost + token) → rendezvous/peer</p>
+<pre>Desktop/TUI/CLI ──IPC──▶ Daemon (History, Sessions, Beacons) ──Signaling──▶ Rendezvous :8787 (Discovery + opake Blobs)
+                                                        └────UDP-Direct / msg-data-Relay────▶ Peer (NaCl-box, E2E)</pre>
+    </div>
+  </div>
+</section>
+
+<!-- SCHNELLSTART -->
+<section id="start" class="mx-auto max-w-6xl px-4 py-16">
+  <h2 class="text-2xl font-bold text-white">Schnellstart</h2>
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    <div class="rounded-2xl border border-line bg-panel p-5">
+      <p class="font-mono text-xs text-slate-500">1–2 · registrieren &amp; beacon</p>
+      <div class="codebox mt-2 rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="lokronet setup --rendezvous http://DEIN-SERVER:8787&#10;lokronet beacon">kopieren</button>
 <pre>lokronet setup --rendezvous http://DEIN-SERVER:8787
-lokronet daemon</pre>
-<p>
-  <a href="https://github.com/Lokrogaming/lokronet">Repo</a> ·
-  <a href="https://github.com/Lokrogaming/lokronet/releases">Releases</a> ·
-  <a href="https://github.com/Lokrogaming/lokronet/blob/main/docs/INSTALL.md">Install-Doku</a> ·
-  <a href="/install">install-Script (raw)</a>
-</p>
-<p class="warn">MVP-Hinweis: Transport noch unverschlüsselt – nur für Tests, kein Produktiv-Einsatz.</p>
+lokronet beacon</pre>
+      </div>
+    </div>
+    <div class="rounded-2xl border border-line bg-panel p-5">
+      <p class="font-mono text-xs text-slate-500">3–4 · handshake &amp; chat</p>
+      <div class="codebox mt-2 rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="lokronet chat open --id 123456789012&#10;lokronet chat send --id 123456789012 --text &quot;hallo&quot;">kopieren</button>
+<pre>lokronet chat open --id 123456789012
+lokronet chat send --id 123456789012 --text "hallo"</pre>
+      </div>
+    </div>
+    <div class="rounded-2xl border border-line bg-panel p-5">
+      <p class="font-mono text-xs text-slate-500">5 · UI öffnen</p>
+      <div class="codebox mt-2 rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="lokronet dashboard">kopieren</button>
+<pre>lokronet dashboard   # TUI mit Chat
+# oder: desktop/LokroNet.Desktop – dotnet run</pre>
+      </div>
+    </div>
+    <div class="rounded-2xl border border-line bg-panel p-5">
+      <p class="font-mono text-xs text-slate-500">6 · status prüfen</p>
+      <div class="codebox mt-2 rounded-xl bg-ink p-4 pr-16 font-mono text-sm">
+        <button class="copybtn rounded border border-line px-2 py-1 text-xs text-slate-400 hover:text-white" data-copy="lokronet presence&#10;lokronet chat sessions">kopieren</button>
+<pre>lokronet presence
+lokronet chat sessions   # Code vergleichen!</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CLI -->
+<section id="cli" class="border-y border-line bg-panel/40">
+  <div class="mx-auto max-w-6xl px-4 py-16">
+    <h2 class="text-2xl font-bold text-white">CLI-Referenz (v0.2)</h2>
+    <div class="mt-6 overflow-x-auto rounded-2xl border border-line">
+      <table class="w-full min-w-[640px] font-mono text-sm">
+        <tbody class="divide-y divide-line bg-panel">
+          <tr><td class="px-4 py-2.5 text-mint">lokronet setup</td><td class="px-4 py-2.5 text-slate-400">ID + Keys, offline-fähig, auto-Nachregistrierung</td></tr>
+          <tr><td class="px-4 py-2.5 text-mint">lokronet chat open/send/sessions/inbox</td><td class="px-4 py-2.5 text-slate-400">Handshake, E2E senden, Codes, Verlauf</td></tr>
+          <tr><td class="px-4 py-2.5 text-mint">lokronet presence / beacon</td><td class="px-4 py-2.5 text-slate-400">Online-Status, Health-Beacon (Boot sendet auto)</td></tr>
+          <tr><td class="px-4 py-2.5 text-mint">lokronet dashboard / dash</td><td class="px-4 py-2.5 text-slate-400">Terminal-UI mit Chat-Tab</td></tr>
+          <tr><td class="px-4 py-2.5 text-mint">lokronet dashboard-web</td><td class="px-4 py-2.5 text-slate-400">Browser-Check, nur Loopback :8080</td></tr>
+          <tr><td class="px-4 py-2.5 text-mint">lokronet contacts …</td><td class="px-4 py-2.5 text-slate-400">Aliase statt 12-stelliger IDs merken</td></tr>
+          <tr><td class="px-4 py-2.5 text-slate-500">lokronet mesh [on|off]</td><td class="px-4 py-2.5 text-slate-500">pausiert – Messenger nutzt Signaling + Direct</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- SICHERHEIT -->
+<section id="sicherheit" class="mx-auto max-w-6xl px-4 py-16">
+  <h2 class="text-2xl font-bold text-white">Sicherheit</h2>
+  <ul class="mt-6 grid gap-3 text-sm text-slate-300 md:grid-cols-2">
+    <li class="rounded-xl border border-line bg-panel p-4"><strong class="text-white">ID ≠ Secret.</strong> 12 Ziffern sind nur Adresse; Auth via Ed25519 + Fingerprint/Session-Code.</li>
+    <li class="rounded-xl border border-line bg-panel p-4"><strong class="text-white">E2E-Pflicht.</strong> XSalsa20-Poly1305, Nonce aus (Seq + Rolle), Replay-Fenster, kein Klartext in Logs.</li>
+    <li class="rounded-xl border border-line bg-panel p-4"><strong class="text-white">Lokal gehärtet.</strong> IPC nur Loopback + Token, Dateien 0600/0700, Daemon least-privilege.</li>
+    <li class="rounded-xl border border-line bg-panel p-4"><strong class="text-white">Ehrlich statt magisch.</strong> NAT ohne Port-Forward → Relay-Hinweis statt stillem Fail; offline → offline.</li>
+  </ul>
+</section>
+
+<!-- DOWNLOADS -->
+<section id="downloads" class="border-t border-line bg-panel/40">
+  <div class="mx-auto max-w-6xl px-4 py-16">
+    <h2 class="text-2xl font-bold text-white">Downloads · v0.2.0</h2>
+    <p class="mt-2 text-slate-400">Alle Go-Binaries sha256-verifiziert via <span class="font-mono">checksums.txt</span>.</p>
+    <div class="mt-6 grid gap-3 font-mono text-sm md:grid-cols-2">
+      <a href="https://github.com/Lokrogaming/lokronet/releases/download/v0.2.0/lokronet_0.2.0_linux_amd64.tar.gz" class="rounded-xl border border-line bg-panel p-4 hover:border-mint"><span class="text-mint">linux_amd64</span><br><span class="text-slate-500">lokronet_0.2.0_linux_amd64.tar.gz</span></a>
+      <a href="https://github.com/Lokrogaming/lokronet/releases/download/v0.2.0/lokronet_0.2.0_linux_arm64.tar.gz" class="rounded-xl border border-line bg-panel p-4 hover:border-mint"><span class="text-mint">linux_arm64</span><br><span class="text-slate-500">lokronet_0.2.0_linux_arm64.tar.gz</span></a>
+      <a href="https://github.com/Lokrogaming/lokronet/releases/download/v0.2.0/lokronet_0.2.0_windows_amd64.zip" class="rounded-xl border border-line bg-panel p-4 hover:border-mint"><span class="text-sky2">windows_amd64</span><br><span class="text-slate-500">lokronet_0.2.0_windows_amd64.zip</span></a>
+      <a href="https://github.com/Lokrogaming/lokronet/releases/download/v0.2.0/LokroNet-Desktop-0.2.0-win-x64.zip" class="rounded-xl border border-mint/40 bg-panel p-4 hover:border-mint"><span class="text-mint">desktop_win-x64</span><br><span class="text-slate-500">LokroNet-Desktop-0.2.0-win-x64.zip (nur Windows)</span></a>
+    </div>
+    <div class="mt-6 flex flex-wrap gap-3 text-sm">
+      <a href="https://github.com/Lokrogaming/lokronet/releases/tag/v0.2.0" class="rounded-lg border border-line px-4 py-2 hover:border-slate-500">Release-Notes</a>
+      <a href="https://github.com/Lokrogaming/lokronet/blob/beta/docs/INSTALL.md" class="rounded-lg border border-line px-4 py-2 hover:border-slate-500">Install-Doku</a>
+      <a href="/install" class="rounded-lg border border-line px-4 py-2 font-mono hover:border-slate-500">install-Script (raw)</a>
+    </div>
+  </div>
+</section>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-8 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+    <p>LokroNet v0.2.0 · Messenger-Fokus · Mesh pausiert · <a href="https://github.com/Lokrogaming/lokronet" class="text-slate-300 hover:text-white">Repo</a></p>
+    <p class="font-mono text-xs">net.lokro.dev · Pages aus docs/ · Installer prüfen sha256</p>
+  </div>
+</footer>
+
+<script>
+document.querySelectorAll('[data-copy]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const text = btn.getAttribute('data-copy').replace(/&#10;/g, '\n');
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove();
+    }
+    const old = btn.textContent;
+    btn.textContent = 'kopiert!';
+    setTimeout(() => btn.textContent = old, 1200);
+  });
+});
+</script>
 </body>
 </html>
