@@ -2,21 +2,35 @@
 # LokroNet Installer – wird auf https://net.lokro.dev/install gehostet.
 # Quelle der Wahrheit in diesem Repo: deploy/install.sh
 #
-# Nutzung:
-#   curl -fsSL https://net.lokro.dev/install | sudo bash
-#   curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --rendezvous
+# Nutzung (v0.2 Messenger-Fokus, Mesh pausiert):
+#   # Server (Ubuntu headless, Rendezvous :8787, kein UI nötig):
+#   curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --server
+#   # Normaler PC mit UI (Binary + User-Daemon + TUI `lokronet dashboard`):
+#   curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --ui
+#   # Nur Binary ohne Services:
+#   curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --no-systemd
+#   # Ohne root:
 #   curl -fsSL https://net.lokro.dev/install | bash -s -- --user
 #
+# Profile:
+#   --server      = System-Binary + lokro-rendezvous.service (:8787) + Firewall-Hinweis
+#   --ui          = System-Binary + lokronet-daemon user-service + TUI-Hinweis
+#                   (Messenger: `lokronet chat`, UI: `lokronet dashboard`, Desktop: dotnet)
+# Alt-Optionen (bleiben kompatibel):
+#   --rendezvous  nur Rendezvous-Service · --daemon nur User-Daemon
+#
 # Optionen:
-#   --version X     Version pinnen (Default: 0.1.5, oder LOKRO_VERSION)
+#   --version X     Version pinnen (Default: 0.2.0, oder LOKRO_VERSION)
 #   --base URL      Download-Basis (Default: GitHub-Release-Assets vVERSION, oder LOKRO_BASE)
 #   --user          nach ~/.local/bin installieren (kein root, kein systemd-system)
 #   --rendezvous    zusätzlich System-Service lokro-rendezvous einrichten (:8787)
 #   --daemon        zusätzlich User-Service lokronet-daemon einrichten (systemd --user)
+#   --server        Kurz für System-Install + --rendezvous (headless Server)
+#   --ui            Kurz für System-Install + --daemon (Desktop mit TUI/Dashboard)
 #   --no-systemd    keine Services anfassen (nur Binary)
 set -euo pipefail
 
-VERSION="${LOKRO_VERSION:-0.1.5}"
+VERSION="${LOKRO_VERSION:-0.2.0}"
 # BASE wird bewusst erst NACH dem Argument-Parsing gesetzt (siehe unten),
 # damit --version / LOKRO_VERSION in die Default-URL einfließen.
 BASE="${LOKRO_BASE:-}"
@@ -33,8 +47,10 @@ while [ $# -gt 0 ]; do
     --user) USER_MODE=1; shift ;;
     --rendezvous) WITH_RENDEZVOUS=1; shift ;;
     --daemon) WITH_DAEMON=1; shift ;;
+    --server) WITH_RENDEZVOUS=1; shift ;;
+    --ui) WITH_DAEMON=1; shift ;;
     --no-systemd) WITH_RENDEZVOUS=0; WITH_DAEMON=0; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "unbekannte Option: $1 (siehe --help)"; exit 2 ;;
   esac
 done
@@ -141,12 +157,22 @@ EOF
 fi
 
 echo ""
-echo "[lokronet] fertig. Nächste Schritte (ALS DEIN USER, nicht root):"
-echo "  # Lokal-Test (Rendezvous zuerst in eigenem Terminal):"
-echo "  lokronet rendezvous"
-echo "  lokronet setup   # bzw. mit Server: lokronet setup --rendezvous http://DEIN-SERVER:8787 --endpoint \"[DEINE-IP]:51820\""
-echo "  lokronet debug on"
-echo "  lokronet daemon   # oder User-Service, siehe oben"
-echo "  # Dashboard (braucht laufenden Daemon): lokronet dashboard"
-echo "Hinweis: https://net.lokro.dev ist nur die statische Install-Seite (kein Signaling)."
-echo "  Das Rendezvous läuft auf DEINEM Server (:8787, siehe --rendezvous-Option)."
+echo "[lokronet] fertig (Messenger v0.2, Mesh pausiert)."
+if [ "$WITH_RENDEZVOUS" = "1" ]; then
+  echo "  Server-Profil: Rendezvous läuft (:8787)."
+  echo "  Check: curl http://127.0.0.1:8787/healthz   # muss ok sagen"
+  echo "  Firewall: ufw allow 8787/tcp"
+fi
+echo "  Nächste Schritte (ALS DEIN USER, nicht root):"
+echo "    lokronet setup --rendezvous http://DEIN-SERVER:8787"
+echo "    lokronet beacon            # Presence an Kontakte (läuft auch auto beim Daemon-Start)"
+echo "    lokronet chat open --id <ID|Name>   # E2E-Handshake (Session-Code vergleichen!)"
+echo "    lokronet chat send --id <ID|Name> --text \"hallo\""
+echo "    lokronet dashboard         # Terminal-UI mit Chat (TUI)"
+echo "    lokronet dashboard-web     # Browser-Check http://127.0.0.1:8080 (nur Loopback)"
+echo "    lokronet presence          # wer ist online (aus Beacons)"
+echo "  Desktop-App (C#/Avalonia, gleiche Daemon-IPC wie TUI):"
+echo "    cd desktop/LokroNet.Desktop && dotnet run"
+echo "Hinweis: https://net.lokro.dev ist nur die statische Install-Seite."
+echo "  Nutzdaten laufen E2E (NaCl-box, signierter X25519-Handshake),"
+echo "  Rendezvous sieht nur Discovery + opake Relay-Blobs, keine DB."

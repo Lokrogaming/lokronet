@@ -1,4 +1,31 @@
-# LokroNet auf Linux und Windows installieren
+# LokroNet v0.2 (Messenger-Fokus, Mesh pausiert) auf Linux und Windows installieren
+
+## Kurzfassung
+
+```bash
+# Server (Ubuntu headless, Rendezvous :8787):
+curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --server
+
+# Normaler PC mit UI (Binary + Daemon + TUI `lokronet dashboard`):
+curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --ui
+```
+
+Danach (als dein User, **nicht** root):
+
+```bash
+lokronet setup --rendezvous http://DEIN-SERVER:8787
+lokronet beacon                       # Presence an Kontakte (läuft auch auto beim Boot)
+lokronet chat open --id <ID|Name>     # E2E-Handshake, Session-Code vergleichen!
+lokronet chat send --id <ID|Name> --text "hallo"
+lokronet dashboard                    # Terminal-UI mit Chat
+lokronet presence                      # wer ist online
+```
+
+Desktop-App (C#/Avalonia, gleiche Daemon-IPC wie TUI – History geteilt):
+
+```bash
+cd desktop/LokroNet.Desktop && dotnet run
+```
 
 ## Windows (PowerShell, kein Admin nötig)
 
@@ -35,7 +62,7 @@ das Script lädt das fertige Binary aus den GitHub-Releases und prüft sha256.
 curl -fsSL https://net.lokro.dev/install | sudo bash
 
 # Version pinnen (folgt automatisch dem Release-Tag vX.Y.Z)
-curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --version=0.1.5
+curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --version=0.2.0
 
 # Ohne root, nach ~/.local/bin
 curl -fsSL https://net.lokro.dev/install | bash -s -- --user

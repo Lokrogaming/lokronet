@@ -13,3 +13,8 @@ dist/
 Thumbs.db
 .vscode/
 .idea/
+
+# .NET / Desktop
+desktop/**/bin/
+desktop/**/obj/
+desktop/**/publish/

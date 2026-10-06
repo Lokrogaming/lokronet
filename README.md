@@ -1,68 +1,73 @@
-# LokroNet
+# LokroNet v0.2 – Messenger-Fokus (Mesh pausiert)
 
-Eigenes Meshnet mit Terminal-CLI: Peers per ID verbinden, Tunnel verschlüsselt aufbauen,
-später Dateien teilen und per TUI verwalten.
+E2E-Messenger mit Terminal-UI + Desktop-App: Peers per 12-stelliger ID finden,
+Session-Handshake mit Signatur, Nachrichten Ende-zu-Ende verschlüsselt,
+Verlauf lokal geteilt zwischen TUI und Desktop.
 
-> **Status:** Idee + Planung. Noch kein lauffähiger Code.
-> Festgelegt: **Go, Windows + Linux, Hybrid-Modell (Rendezvous + direktes P2P via WireGuard),
-> 12-stellige ID als Adresse + Ed25519-Auth, MVP = nur Mesh + Debug-Meldungen.**
+> **Stand v0.2:** Messenger aktiv (Chat, Presence-Beacons, lokale History),
+> Mesh/Tunnel pausiert. Rendezvous nur für Discovery + opake Relay-Blobs,
+> **keine DB, keine Klartext-Nutzdaten auf Servern.**
 
-## Idee in kurz
+## Schnellstart
 
-1. Paket auf Server / PC laden (`apt install lokronet`, `winget`, Docker – geplant)
-2. `lokronet setup` -> bekommt random ID (12 Ziffern `0-9`) + lokales Keypair
-3. `lokronet connect --id <ID>` + Gegenstelle bestätigt Fingerprint -> verschlüsselter Tunnel
-4. Später: `filemanager`-Shares, Remote-Terminal, TUI per `lokronet` ohne Args
+```bash
+# Server (Ubuntu headless):
+curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --server
 
-Details und offene Fragen: siehe [`docs/IDEEN.md`](docs/IDEEN.md).
+# PC mit UI:
+curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --ui
 
-## Geplante CLI (MVP zuerst)
-
-```powershell
-lokronet setup              # ID + Keys erzeugen, am Rendezvous registrieren
-lokronet status             # ID, Fingerprint, Peers, Tunnel-Status
-lokronet connect --id <ID>  # Pairing-Anfrage an Peer
-lokronet ping --id <ID>     # E2E-Testnachricht durch den Tunnel
-lokronet debug on|off       # Bestätigungs-/Debugmeldungen im Terminal an/aus
-lokronet logs --tail 50
+# Danach (als User):
+lokronet setup --rendezvous http://DEIN-SERVER:8787
+lokronet beacon
+lokronet chat open --id <ID|Name>   # Session-Code vergleichen!
+lokronet chat send --id <ID|Name> --text "hallo"
+lokronet dashboard                  # TUI mit Chat
 ```
 
-Später (noch **nicht** im MVP):
+Desktop-App (C#/Avalonia, gleiche Daemon-IPC wie TUI):
 
 ```powershell
-lokronet filemanager trusted add -id <ID> -p <path\to\file-or-folder>
-lokronet                    # öffnet TUI (wie OpenCode Terminal-UI)
+cd desktop/LokroNet.Desktop
+dotnet run
+```
+
+Details: [`docs/INSTALL.md`](docs/INSTALL.md), Ideen-Speicher [`docs/IDEEN.md`](docs/IDEEN.md).
+
+## CLI (v0.2)
+
+```powershell
+lokronet setup              # ID + Keys, am Rendezvous registrieren (offline-fähig)
+lokronet status             # ID, Fingerprint, Peers, Traffic
+lokronet chat open --id <ID>     # E2E-Handshake (signierter X25519, Code vergleichen)
+lokronet chat send --id <ID> --text "..."  # senden (direct, sonst relay)
+lokronet chat sessions      # Sessions + Session-Codes
+lokronet chat inbox         # Verlauf (lokal, geteilt mit Desktop)
+lokronet presence           # online/offline aus Beacons
+lokronet beacon             # Health-Beacon (Boot sendet auto an alle Kontakte)
+lokronet dashboard          # Terminal-UI mit Chat
+lokronet dashboard-web      # Browser-Check (nur Loopback)
+lokronet mesh [on|off]      # pausiert – Messenger braucht nur Signaling+UDP-Direct
 ```
 
 ## Sicherheit in einem Satz
 
-Die 12-stellige ID ist nur die Adresse, **niemals das Secret**.
-Auth läuft über lokale Ed25519-/WireGuard-Keys + manuelle Fingerprint-Freigabe,
-der gesamte Mesh-Traffic läuft E2E-verschlüsselt (Pflicht, siehe `docs/IDEEN.md`).
+12-stellige ID = nur Adresse. Auth: Ed25519-Identität + signierter
+Ephemeral-X25519-Handshake + manueller Session-Code-Vergleich.
+Nachrichten NaCl-box (E2E), Rendezvous sieht nur Metadaten/opake Blobs.
+Lokal: `~/.lokronet/` mit 0600 (History, Keys, Token).
 
-## Geplante Projektstruktur (Go, noch nicht gebaut)
+## Struktur
 
 ```text
-cmd/lokronet/          # CLI-Einstieg (cobra)
-cmd/rendezvous/        # Signaling-/Discovery-Server für VPS
-internal/identity/     # setup, ID-Gen, Keys
-internal/daemon/       # Hintergrunddienst, IPC via localhost-Socket
-internal/netcore/      # Portwahl, UPnP/NAT-PMP, STUN, Hole-Punching
-internal/wg/           # wireguard-go Wrapper, Firewall-Regeln
-internal/signal/       # HTTPS/WSS-Client + Server (v1)
-internal/debug/        # ping, logs, debug on/off
-pkg/proto/             # versionierte Protokoll-Typen (v1)
-docs/                  # IDEEN.md, Architektur-Notizen
+cmd/lokronet/          # CLI + TUI-Dashboard + Web-Dashboard
+internal/identity/     # ID + Ed25519
+internal/daemon/       # Backend: IPC, Chat, Presence/Beacons, signierter Handshake
+internal/chat/         # E2E-Sessions (box) + lokale History (geteilt)
+internal/signal/       # Rendezvous-Client/Server (Discovery + Relay, keine DB)
+internal/contacts/     # Aliase + History
+desktop/LokroNet.Desktop/  # C#/Avalonia-UI (gleiche IPC wie TUI)
+scripts/autostart/     # Boot-Beacon (.sh + .cmd)
+deploy/                # install.sh (--server/--ui), systemd
+docs/                  # IDEEN.md, INSTALL.md
 ```
-
-## Installation (Ziel, noch nicht fertig)
-
-* Windows: `winget install lokronet` / MSI (geplant)
-* Linux: `apt install lokronet` über eigenes signiertes APT-Repo (geplant)
-* Server/Docker-Image für `lokro-rendezvous` (geplant)
-
-## Hinweis zum Ordner
-
-Alter Arbeitsordner `lokroAccounts` wurde durch `lokronet` ersetzt.
-Falls `lokroAccounts` bei dir noch als leerer Ordner existiert (war beim
-Umbennen gesperrt), kannst du ihn nach Schließen aller Terminals manuell löschen.

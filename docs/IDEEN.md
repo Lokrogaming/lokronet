@@ -7,9 +7,9 @@ Status-Legende: `MVP` = zuerst bauen · `P1/P2/P3` = später · `Pflicht` = nich
 
 | # | Idee | Status |
 |---|------|--------|
-| 1 | Mesh-Tunnel mit Portfreigabe + abgeschottetem Bereich | MVP |
-| 2 | `setup` mit 12-stelliger ID + Key-Auth | MVP |
-| 3 | Debug-/Bestätigungsnachrichten per Command schaltbar | MVP |
+| 1 | Mesh-Tunnel mit Portfreigabe + abgeschottetem Bereich | PAUSIERT (v0.2: Messenger zuerst) |
+| 2 | `setup` mit 12-stelliger ID + Key-Auth | MVP (gebaut, offline-fähig) |
+| 3 | Debug-/Bestätigungsnachrichten per Command schaltbar | MVP (gebaut) |
 | 4 | Datei-/Ordner-Sharing (`filemanager trusted add`) | P2 |
 | 5 | Remote-Terminal / Editor über Mesh | P3 |
 | 6 | Eigene TUI per `lokronet` (wie OpenCode) | P3 |
@@ -17,8 +17,8 @@ Status-Legende: `MVP` = zuerst bauen · `P1/P2/P3` = später · `Pflicht` = nich
 | 8 | Sicherheitsmechanismen gegen Hacker | Pflicht (ab MVP) |
 | 9 | Mesh-Traffic immer encrypted (v.a. Datei-Downloads) | Pflicht (ab MVP, bei Files nochmal verstärkt) |
 | 10 | Kontakte/Aliase, Connection-History (30 Tage), Terminal-Menü, Mode-Werbung | Beta (gebaut) |
-| 11 | Integrierter Messenger mit E2E (Session-RAM, Mesh-Transport) | P4 (geplant) |
-| 12 | Prio-Routing performance > normal > eco | P4 (geplant) |
+| 11 | Integrierter Messenger mit E2E | v0.2 AKTIV (lokale History, Relay, signierter Handshake, TUI+Desktop teilen IPC) |
+| 12 | Prio-Routing performance > normal > eco | P4 (geplant, nach Messenger) |
 | 13 | System-Typ normal/database + verschlüsselte History-Sicherung | P5 (geplant) |
 
 ---

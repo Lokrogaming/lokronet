@@ -1,0 +1,31 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="LokroNet.Desktop.MainWindow"
+        Title="LokroNet Messenger (Desktop)" Width="980" Height="640">
+  <DockPanel>
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
+      <TextBlock Name="StatusText" VerticalAlignment="Center" Text="verbinde …" />
+      <Button Name="RefreshButton" Content="Aktualisieren" />
+      <Button Name="BeaconButton" Content="Beacon an alle" />
+      <TextBlock VerticalAlignment="Center" Opacity="0.6"
+                 Text="gleiche IPC wie TUI (`lokronet dashboard`) – History geteilt" />
+    </StackPanel>
+    <Grid ColumnDefinitions="280,*" Margin="8">
+      <DockPanel Grid.Column="0">
+        <TextBlock DockPanel.Dock="Top" Text="Chats / Kontakte" FontWeight="Bold" Margin="0,0,0,4" />
+        <ListBox Name="PeerList" />
+      </DockPanel>
+      <DockPanel Grid.Column="1" Margin="8,0,0,0">
+        <TextBlock DockPanel.Dock="Top" Name="ChatHeader" FontWeight="Bold" Text="kein Chat gewählt" />
+        <TextBlock DockPanel.Dock="Top" Name="SessionCode" Opacity="0.6" FontSize="12"
+                   Text="Session-Code out-of-band vergleichen!" />
+        <ListBox DockPanel.Dock="Top" Name="MessageList" Height="440" />
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+          <TextBox Name="IdBox" Width="150" Watermark="ID oder Name" />
+          <TextBox Name="InputBox" Width="480" Watermark="Nachricht … (Enter = senden)" />
+          <Button Name="SendButton" Content="Senden" />
+        </StackPanel>
+      </DockPanel>
+    </Grid>
+  </DockPanel>
+</Window>
