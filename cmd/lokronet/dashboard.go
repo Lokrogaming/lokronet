@@ -32,8 +32,8 @@ func cmdDashboard(args []string) error {
 func printDump() {
 	s := tui.FetchSnapshot(Version)
 	fmt.Printf("lokronet %s-beta  online=%v  mode=%s  mesh=%v\n", s.Version, s.Online, s.Mode, s.Mesh)
-	fmt.Printf("id=%s  contacts=%d  connections=%d  traffic_in=%d  traffic_out=%d\n",
-		s.ID, len(s.Contacts), len(s.Rows), s.TotalIn, s.TotalOut)
+	fmt.Printf("id=%s  contacts=%d  connections=%d  chats=%d  traffic_in=%d  traffic_out=%d\n",
+		s.ID, len(s.Contacts), len(s.Rows), len(s.ChatSess), s.TotalIn, s.TotalOut)
 	for _, r := range s.Rows {
 		name := r.ID
 		if r.Alias != "" {

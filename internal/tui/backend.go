@@ -53,6 +53,8 @@ type Snapshot struct {
 	History     []contacts.HistoryEntry
 	Events      []client.Event
 	Rows        []ConnRow
+	ChatSess    []client.ChatSession
+	ChatInbox   []client.ChatMessage
 	IfAddrs     []netinfo.IfAddr
 	PublicIP    string
 }
@@ -100,6 +102,13 @@ func FetchSnapshot(version string) Snapshot {
 		}
 		if ev, err := c.Events(); err == nil {
 			s.Events = ev
+		}
+		if cs, err := c.ChatSessions(); err == nil {
+			sort.Slice(cs, func(i, j int) bool { return cs[i].PeerID < cs[j].PeerID })
+			s.ChatSess = cs
+		}
+		if inbox, err := c.ChatInbox(); err == nil {
+			s.ChatInbox = inbox
 		}
 	} else {
 		s.DaemonErr = "daemon offline – `lokronet daemon` starten"

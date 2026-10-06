@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -60,7 +61,7 @@ func (m Model) viewStatusLine(w int) string {
 }
 
 func (m Model) viewFooter(w int) string {
-	hints := "↑↓ Navigate  Tab Fokus  ←/→ Tab  Enter Select  c Connect  p Ping  r Refresh  ? Hilfe  q Quit"
+	hints := "↑↓ Navigate  Tab Fokus  ←/→ Tab  b Menü  Enter Select  c Connect  p Ping  r Refresh  ? Hilfe  q Quit"
 	hints = truncate(hints, w-4)
 	left := styleMuted.Render("LokroNet • beta")
 	gap := w - lipgloss.Width(left) - lipgloss.Width(hints) - 4
@@ -72,19 +73,35 @@ func (m Model) viewFooter(w int) string {
 
 func (m Model) compact() bool { return m.w < 90 }
 
+// showSide: Sidemenü sichtbar? Manuell per b umschaltbar; im Chat-Tab
+// automatisch zu (Platz für die Session-/Kontaktliste).
+func (m Model) showSide() bool {
+	if m.compact() || m.sideHidden || m.tab == TabChat {
+		return false
+	}
+	return true
+}
+
 func (m Model) viewBody(w, h int) string {
-	if m.compact() {
-		// Schmal: Tabs als Kopfzeile, nur Main-Bereich.
+	if !m.showSide() {
+		// Schmal/versteckt/Chat: Tabs als Kopfzeile, nur Main-Bereich.
 		tabs := make([]string, len(tabNames))
 		for i, n := range tabNames {
+			label := fmt.Sprintf("%d %s", i+1, n)
+			if Tab(i) == TabChat && m.unread() > 0 && m.tab != TabChat {
+				label += fmt.Sprintf(" (%d)", m.unread())
+			}
 			if Tab(i) == m.tab {
-				tabs[i] = styleActive.Render(fmt.Sprintf("[%d %s]", i+1, n))
+				tabs[i] = styleActive.Render("[" + label + "]")
 			} else {
-				tabs[i] = styleMuted.Render(fmt.Sprintf("%d %s", i+1, n))
+				tabs[i] = styleMuted.Render(label)
 			}
 		}
 		bar := truncate(strings.Join(tabs, "  "), w-4)
-		return lipgloss.JoinVertical(lipgloss.Left, bar, m.viewMain(w-2, h-1))
+		if m.tab == TabChat {
+			bar += "\n" + styleMuted.Render("b: Menü einblenden • n: neuer Chat • i: schreiben • Enter: wählen/senden")
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, bar, m.viewMain(w-2, h-2))
 	}
 	sideW := 22
 	mainW := w - sideW - 5 // borders + padding
@@ -112,7 +129,11 @@ func (m Model) viewSidebar(w, h int) string {
 		if Tab(i) == m.tab {
 			marker = "▸ "
 		}
-		line := marker + fmt.Sprintf("%d %s", i+1, n)
+		label := fmt.Sprintf("%d %s", i+1, n)
+		if Tab(i) == TabChat && m.unread() > 0 {
+			label += fmt.Sprintf(" (%d)", m.unread())
+		}
+		line := marker + label
 		if Tab(i) == m.tab {
 			b.WriteString(styleSel.Render(padRight(line, w-4)) + "\n")
 		} else {
@@ -120,6 +141,15 @@ func (m Model) viewSidebar(w, h int) string {
 		}
 	}
 	return b.String()
+}
+
+// unread: ungelesene eingehende Chat-Nachrichten (Badge).
+func (m Model) unread() int {
+	n := countIncoming(m.snap.ChatInbox) - m.chatSeenIncoming
+	if n < 0 {
+		return 0
+	}
+	return n
 }
 
 func padRight(s string, w int) string {
@@ -171,6 +201,8 @@ func (m Model) viewMain(w, h int) string {
 			out = append(out, sel(m.offset+i, l))
 		}
 		return strings.Join(out, "\n")
+	case TabChat:
+		return m.viewChat(w, h)
 	case TabContacts:
 		var all []string
 		for _, c := range m.snap.Contacts {
@@ -236,8 +268,111 @@ func (m Model) viewMain(w, h int) string {
 	return ""
 }
 
-func aliasOf(s Snapshot, id string) string {
-	for _, c := range s.Contacts {
+// viewChat: links Sessions/Kontakte, rechts Verlauf, unten Eingabe.
+// RAM-only (Session-Verlauf), E2E-verschlüsselt, kein Klartext in Logs.
+func (m Model) viewChat(w, h int) string {
+	sess := m.snap.ChatSess
+	if len(sess) == 0 {
+		return styleMuted.Render("Noch keine Chats – [n] für neuen Chat (Name oder ID).")
+	}
+	sel := m.cursor
+	if sel < 0 || sel >= len(sess) {
+		sel = 0
+	}
+	cur := sess[sel]
+	name := cur.PeerID
+	if a := aliasOf(m.snap, cur.PeerID); a != "" {
+		name = a + " (" + cur.PeerID + ")"
+	}
+
+	// Linke Liste: Sessions.
+	sessW := 30
+	if w < 60 {
+		sessW = w / 3
+	}
+	var left []string
+	for i, s := range sess {
+		n := s.PeerID
+		if a := aliasOf(m.snap, s.PeerID); a != "" {
+			n = a
+		}
+		if !s.Ready {
+			n += styleWarn.Render(" …")
+		} else {
+			n = dot(true) + " " + n
+		}
+		if m.focusMain && i == m.cursor && !m.chatInputFocus {
+			left = append(left, styleSel.Render(padRight("▸ "+n, sessW)))
+		} else {
+			left = append(left, padRight("  "+n, sessW))
+		}
+	}
+
+	// Verlauf der gewählten Session (auto-follow, letzte passende).
+	var msgs []string
+	for _, msg := range m.snap.ChatInbox {
+		if msg.From != cur.PeerID && msg.To != cur.PeerID {
+			continue
+		}
+		who := "ich"
+		if !msg.Outgoing {
+			if a := aliasOf(m.snap, msg.From); a != "" {
+				who = a
+			} else {
+				who = truncate(msg.From, 12)
+			}
+		}
+		line := fmt.Sprintf("%s %-10s %s", timeFmt(msg.Ts), truncate(who, 10), msg.Text)
+		if msg.Outgoing {
+			line = styleMuted.Render(line)
+		}
+		msgs = append(msgs, truncate(line, w-sessW-4))
+	}
+	head := fmt.Sprintf("Chat mit %s", name)
+	if cur.Ready {
+		head += styleMuted.Render(fmt.Sprintf("  •  Session-Code: %s (out-of-band vergleichen)", cur.Code))
+	} else {
+		head += styleWarn.Render("  •  Handshake läuft…")
+	}
+	msgH := h - 4 // kopf(2) + eingabe(2)
+	if msgH < 3 {
+		msgH = 3
+	}
+	if len(msgs) > msgH {
+		msgs = msgs[len(msgs)-msgH:]
+	}
+	if len(msgs) == 0 {
+		msgs = []string{styleMuted.Render("(noch keine Nachrichten – [i] zum Schreiben)")}
+	}
+	right := lipgloss.JoinVertical(lipgloss.Left, append([]string{head, ""}, msgs...)...)
+
+	input := styleMuted.Render("[i] tippen …")
+	if m.chatInputFocus {
+		input = "› " + m.chatInput.View()
+	}
+	leftBox := styleBox.Render(strings.Join(visibleLines(left, h-2), "\n"))
+	rightBox := styleBox.Render(right + "\n" + input)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
+}
+
+func visibleLines(all []string, h int) []string {
+	if len(all) == 0 {
+		return []string{styleMuted.Render("(leer)")}
+	}
+	if len(all) > h && h > 0 {
+		return all[len(all)-h:]
+	}
+	return all
+}
+
+func timeFmt(unix int64) string {
+	if unix <= 0 {
+		return "--:--"
+	}
+	return time.Unix(unix, 0).Format("15:04")
+}
+
+func aliasOf(s Snapshot, id string) string {	for _, c := range s.Contacts {
 		if c.ID == id {
 			return c.Name
 		}
@@ -373,12 +508,14 @@ func (m Model) viewDialog() string {
 			styleTitle.Render("Keyboard Shortcuts") + "\n\n" +
 				"↑/↓ oder j/k   Navigieren\n" +
 				"←/→ oder Tab   Bereich / Tab wechseln\n" +
-				"1-8            Direkt zum Tab\n" +
+				"1-9            Direkt zum Tab\n" +
+				"b              Sidemenü ein-/ausblenden\n" +
 				"Enter          Auswählen / Details\n" +
 				"Esc            Zurück / Schließen\n" +
 				"c / p          Connect / Ping (Auswahl oder Eingabe)\n" +
 				"a / x          Kontakt hinzu / entfernen\n" +
 				"m              Modus weiter (Settings)\n" +
+				"Chat: n/i      Neuer Chat / Eingabe fokussieren\n" +
 				"r              Refresh\n" +
 				"?              Diese Hilfe\n" +
 				"q / Strg+C     Beenden\n\n" +

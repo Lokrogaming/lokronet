@@ -4,6 +4,7 @@
 package daemon
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/lokro/lokronet/internal/config"
 	"github.com/lokro/lokronet/internal/debug"
+	"github.com/lokro/lokronet/internal/chat"
 	"github.com/lokro/lokronet/internal/identity"
 	"github.com/lokro/lokronet/internal/metrics"
 	"github.com/lokro/lokronet/internal/mode"
@@ -39,6 +41,7 @@ type Daemon struct {
 	token string
 	m     *metrics.Counters
 	lim   *senderLimiter
+	chat  *chat.Manager
 
 	udp *net.UDPConn
 
@@ -64,7 +67,7 @@ func New() (*Daemon, error) {
 	m := metrics.New()
 	sigClient := signal.NewClient(cfg.RendezvousURL)
 	sigClient.M = m
-	return &Daemon{
+	d := &Daemon{
 		cfg:      cfg,
 		ident:    ident,
 		bus:      debug.NewBus(200),
@@ -74,7 +77,44 @@ func New() (*Daemon, error) {
 		lim:      &senderLimiter{last: time.Now()},
 		peers:    make(map[string]*peerState),
 		pongWait: make(map[string]chan struct{}),
-	}, nil
+	}
+	// Chat-Hooks (werden ohne Chat-Lock gerufen; Daemon-Locks ok).
+	d.chat = chat.NewManager(ident.ID, chat.Hooks{
+		SendSignal: func(to, typ, payload string) {
+			_ = d.sig.Send(proto.SignalMessage{From: d.ident.ID, To: to, Type: typ, Payload: payload})
+		},
+		SendUDP: func(endpoint string, data []byte) error {
+			if d.udp == nil {
+				return fmt.Errorf("mesh deaktiviert")
+			}
+			addr, err := net.ResolveUDPAddr("udp", endpoint)
+			if err != nil {
+				return err
+			}
+			if !d.udpWrite(data, addr) {
+				return fmt.Errorf("gedrosselt (mode)")
+			}
+			return nil
+		},
+		LookupEndpoint: d.chatEndpoint,
+	})
+	return d, nil
+}
+
+// chatEndpoint löst eine Peer-ID in "ip:port" auf (bekannte Peers zuerst,
+// sonst Rendezvous-Lookup). Best effort für den Messenger.
+func (d *Daemon) chatEndpoint(peerID string) (string, bool) {
+	d.mu.Lock()
+	if p, ok := d.peers[peerID]; ok && p.Peer.Endpoint != "" {
+		ep := p.Peer.Endpoint
+		d.mu.Unlock()
+		return ep, true
+	}
+	d.mu.Unlock()
+	if peer, err := d.sig.Lookup(peerID); err == nil && peer.Endpoint != "" {
+		return peer.Endpoint, true
+	}
+	return "", false
 }
 
 // senderLimiter begrenzt ausgehende UDP-Pakete (Token-Bucket, Burst = 1s).
@@ -207,6 +247,15 @@ func (d *Daemon) udpLoop() {
 			}
 			d.mu.Unlock()
 			d.emit("pong von %s nonce=%s", addr.String(), nonce)
+		case strings.HasPrefix(msg, chat.UDPPrefix):
+			// Messenger-Nutzdaten (Inhalt nie loggen – nur Metadaten).
+			raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(msg, chat.UDPPrefix))
+			if err != nil {
+				break
+			}
+			if cm, ok := d.chat.OnUDP(raw); ok && cm != nil {
+				d.emit("chat-nachricht von %s", cm.From)
+			}
 		}
 	}
 }
@@ -230,7 +279,7 @@ func backoffSleep(fails int) {
 func (d *Daemon) heartbeatLoop() {
 	mn, _ := mode.Of(d.cfg.Mode)
 	fails := 0
-	if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), string(mn)); err != nil {
+	if err := d.beat(string(mn)); err != nil {
 		fails = 1
 		d.emit("heartbeat fehlgeschlagen: %v", err)
 	}
@@ -238,7 +287,7 @@ func (d *Daemon) heartbeatLoop() {
 		_, p := mode.Of(d.cfg.Mode)
 		time.Sleep(p.Heartbeat)
 		mn, _ := mode.Of(d.cfg.Mode)
-		if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), string(mn)); err != nil {
+		if err := d.beat(string(mn)); err != nil {
 			fails++
 			if fails == 1 || fails%10 == 0 {
 				d.emit("heartbeat fehlgeschlagen (%dx): %v", fails, err)
@@ -250,6 +299,23 @@ func (d *Daemon) heartbeatLoop() {
 			fails = 0
 		}
 	}
+}
+
+// beat heartbeated; bei unbekannter ID (z.B. Rendezvous-Neustart)
+// registriert sich der Daemon selbst neu (hat ja Keys + Endpoint).
+func (d *Daemon) beat(mode string) error {
+	if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), mode); err == nil {
+		return nil
+	}
+	peer, err := d.ident.ToPeer(d.publicEndpoint(), mode)
+	if err != nil {
+		return err
+	}
+	if err := d.sig.Register(peer); err != nil {
+		return err
+	}
+	d.emit("neu registriert (Rendezvous kannte ID nicht mehr)")
+	return nil
 }
 
 func (d *Daemon) signalLoop() {
@@ -294,6 +360,19 @@ func (d *Daemon) onSignal(m proto.SignalMessage) {
 		// Gegenstelle will NAT öffnen -> ein paar Punch-Pakete zurück.
 		if peer, err := d.sig.Lookup(m.From); err == nil && peer.Endpoint != "" {
 			go d.punch(peer.Endpoint, 3)
+		}
+	case "msg-hello":
+		// Messenger-Handshake (Antwort-Ack verschickt der Manager selbst).
+		if err := d.chat.OnHello(m.From, m.Payload); err != nil {
+			d.emit("chat-hello von %s abgelehnt: %v", m.From, err)
+		} else {
+			d.emit("chat-handshake mit %s", m.From)
+		}
+	case "msg-hello-ack":
+		if err := d.chat.OnAck(m.From, m.Payload); err != nil {
+			d.emit("chat-ack von %s abgelehnt: %v", m.From, err)
+		} else {
+			d.emit("chat-bereit mit %s", m.From)
 		}
 	}
 }
@@ -544,5 +623,50 @@ func (d *Daemon) serveIPC() error {
 		}
 		writeJSON(w, map[string]any{"rtt_ms": rtt})
 	}))
-	return http.ListenAndServe(config.IPCAddr, mux)
+	// Messenger (nur via Dashboard; kein CLI-Command).
+	mux.HandleFunc("/v1/chat/sessions", d.checkToken(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, d.chat.Sessions())
+	}))
+	mux.HandleFunc("/v1/chat/inbox", d.checkToken(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, d.chat.Inbox())
+	}))
+	mux.HandleFunc("/v1/chat/send", d.checkToken(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			ID   string `json:"id"`
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if len(body.ID) != 12 {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]string{"error": "ID muss 12 Ziffern haben"})
+			return
+		}
+		status, err := d.chat.Send(body.ID, body.Text)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]string{"status": status})
+	}))
+	// IPC binden (37777 ff. – Fallback für zweite Daemons auf derselben
+	// Maschine). Genutzter Port landet in daemon.ipc für CLI/TUI.
+	var ln net.Listener
+	ipcPort := 37777
+	for i := 0; i < config.IPCPortTries; i++ {
+		var err error
+		ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", 37777+i))
+		if err == nil {
+			ipcPort = 37777 + i
+			break
+		}
+	}
+	if ln == nil {
+		return fmt.Errorf("kein freier IPC-Port (37777-%d)", 37777+config.IPCPortTries-1)
+	}
+	_ = config.WriteIPCPort(ipcPort)
+	return http.Serve(ln, mux)
 }

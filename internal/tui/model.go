@@ -17,6 +17,7 @@ type Tab int
 const (
 	TabDashboard Tab = iota
 	TabConnections
+	TabChat
 	TabContacts
 	TabHistory
 	TabNetwork
@@ -26,7 +27,7 @@ const (
 	TabCount
 )
 
-var tabNames = []string{"Dashboard", "Connections", "Contacts", "History", "Network", "Logs", "Settings", "IDs"}
+var tabNames = []string{"Dashboard", "Connections", "Chat", "Contacts", "History", "Network", "Logs", "Settings", "IDs"}
 
 // Dialoge (modal, Esc schließt immer).
 type dlgKind int
@@ -50,28 +51,38 @@ type tickMsg time.Time
 
 // Model ist der gesamte TUI-Zustand.
 type Model struct {
-	version   string
-	w, h      int
-	ready     bool
-	tab       Tab
+	version string
+	w, h    int
+	ready   bool
+	tab     Tab
 	focusMain bool
-	cursor    int
-	offset    int
-	snap      Snapshot
-	msg       string
-	msgErr    bool
-	dlg       dlgKind
-	dlgTitle  string
-	dlgText   string
-	dlgAction string // "connect"|"ping" bei dlgTarget
+	sideHidden bool // manuell per b; Chat-Tab blendet zusätzlich auto aus
+	cursor  int
+	offset  int
+	snap    Snapshot
+	msg     string
+	msgErr  bool
+	dlg     dlgKind
+	dlgTitle string
+	dlgText  string
+	dlgAction string // "connect"|"ping"|"chat" bei dlgTarget
 	pendingID string // für dlgConfirmRemove: Kontaktname
-	inputs    []textinput.Model
-	tiFocus   int
+	inputs  []textinput.Model
+	tiFocus int
+	// Chat-State (nur Dashboard, Sessions kommen aus dem Snapshot).
+	chatInput        textinput.Model
+	chatInputFocus   bool
+	chatSeenIncoming int
+	chatClearOnOk    bool
 }
 
 // New erzeugt das Dashboard-Modell.
 func New(version string) Model {
-	return Model{version: version, snap: FetchSnapshot(version)}
+	ci := textinput.New()
+	ci.Placeholder = "Nachricht … (Enter sendet, Esc zurück)"
+	ci.CharLimit = 800
+	ci.Width = 60
+	return Model{version: version, snap: FetchSnapshot(version), chatInput: ci}
 }
 
 // refreshCmd holt einen Snapshot (blockiert nie die UI).
@@ -103,6 +114,8 @@ func (m Model) rowCount() int {
 	switch m.tab {
 	case TabConnections:
 		return len(m.snap.Rows)
+	case TabChat:
+		return len(m.snap.ChatSess)
 	case TabContacts:
 		return len(m.snap.Contacts)
 	case TabHistory:
@@ -167,9 +180,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = m.rowCount() - 1
 			m.clampCursor()
 		}
+		if m.cursor >= len(m.snap.ChatSess) {
+			m.cursor = 0
+		}
+		if m.tab == TabChat {
+			m.chatSeenIncoming = countIncoming(m.snap.ChatInbox)
+		}
 		return m, nil
 	case actionMsg:
 		m.msg, m.msgErr = msg.text, msg.isErr
+		if !msg.isErr && m.chatClearOnOk {
+			m.chatInput.SetValue("")
+			m.chatClearOnOk = false
+		}
 		return m, refreshCmd(m.version)
 	case tickMsg:
 		return m, tea.Batch(refreshCmd(m.version), tickCmd())
@@ -195,6 +218,20 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Dialoge haben Vorrang.
 	if m.dlg != dlgNone {
 		return m.updateDialog(msg)
+	}
+	// Chat-Eingabe hat Vorrang vor allen Shortcuts (sonst frisst q/? den Text).
+	if m.chatInputFocus {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.chatInputFocus = false
+			m.chatInput.Blur()
+			return m, nil
+		case tea.KeyEnter:
+			return m.sendChatInput()
+		}
+		var cmd tea.Cmd
+		m.chatInput, cmd = m.chatInput.Update(msg)
+		return m, cmd
 	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
@@ -248,10 +285,15 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Ziffern springen direkt zum Tab.
-	if len(msg.String()) == 1 && msg.String() >= "1" && msg.String() <= "8" {
+	if len(msg.String()) == 1 && msg.String() >= "1" && int(msg.String()[0]-'1') < int(TabCount) {
 		m.tab = Tab(msg.String()[0] - '1')
 		m.cursor, m.offset, m.focusMain = 0, 0, true
 		return m, refreshCmd(m.version)
+	}
+	// b blendet das Sidemenü (im Chat-Tab ist es auto-aus).
+	if msg.String() == "b" {
+		m.sideHidden = !m.sideHidden
+		return m, nil
 	}
 	// Kontext-Aktionen im Main-Bereich.
 	if m.focusMain {
@@ -271,6 +313,16 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "m":
 			if m.tab == TabSettings {
 				return m, m.cycleMode()
+			}
+		case "i":
+			if m.tab == TabChat {
+				m.chatInputFocus = true
+				m.chatInput.Focus()
+				return m, nil
+			}
+		case "n":
+			if m.tab == TabChat {
+				return m.startTargetDlg("chat")
 			}
 		}
 	}
@@ -323,6 +375,13 @@ func (m Model) activate() (tea.Model, tea.Cmd) {
 			m.dlgText = fmt.Sprintf("Name: %s\nID:   %s\nFP:   %s", c.Name, c.ID, c.Fingerprint)
 		}
 		return m, nil
+	case TabChat:
+		if len(m.snap.ChatSess) == 0 {
+			return m.startTargetDlg("chat")
+		}
+		m.chatInputFocus = true
+		m.chatInput.Focus()
+		return m, nil
 	case TabSettings:
 		return m, m.applySetting(m.cursor)
 	}
@@ -371,7 +430,7 @@ func (m Model) startTargetDlg(action string) (tea.Model, tea.Cmd) {
 	m.inputs = []textinput.Model{ti}
 	m.tiFocus = 0
 	m.dlg, m.dlgAction = dlgTarget, action
-	m.dlgTitle = map[string]string{"connect": "Verbinden mit", "ping": "Ping an"}[action]
+	m.dlgTitle = map[string]string{"connect": "Verbinden mit", "ping": "Ping an", "chat": "Chat starten mit"}[action]
 	return m, nil
 }
 
@@ -422,8 +481,63 @@ func (m Model) doConnect(id string) tea.Cmd {
 	})
 }
 
-func (m Model) doPing(id string) tea.Cmd {
+// --- Messenger-Aktionen (nur Dashboard, E2E via Daemon) ---
+
+// doChatOpen startet eine Session (Handshake) und wählt sie aus.
+func (m Model) doChatOpen(target string) tea.Cmd {
 	return actionCmd(func() (string, bool) {
+		rid, err := resolveQuiet(target)
+		if err != nil {
+			return err.Error(), true
+		}
+		c, err := client.Dial()
+		if err != nil {
+			return err.Error(), true
+		}
+		st, err := c.ChatSend(rid, "")
+		if err != nil {
+			return err.Error(), true
+		}
+		return fmt.Sprintf("chat %s: %s", rid, st), false
+	})
+}
+
+// sendChatInput schickt den Eingabe-Text an die gewählte Session.
+func (m Model) sendChatInput() (tea.Model, tea.Cmd) {
+	text := strings.TrimSpace(m.chatInput.Value())
+	if text == "" || m.cursor >= len(m.snap.ChatSess) {
+		return m, nil
+	}
+	peer := m.snap.ChatSess[m.cursor].PeerID
+	m.chatClearOnOk = true
+	return m, actionCmd(func() (string, bool) {
+		c, err := client.Dial()
+		if err != nil {
+			return err.Error(), true
+		}
+		st, err := c.ChatSend(peer, text)
+		if err != nil {
+			return err.Error(), true
+		}
+		if st != "sent" {
+			return fmt.Sprintf("chat %s", st), false
+		}
+		return "", false
+	})
+}
+
+// countIncoming zählt eingehende Inbox-Nachrichten (für Ungelesen-Badge).
+func countIncoming(inbox []client.ChatMessage) int {
+	n := 0
+	for _, msg := range inbox {
+		if !msg.Outgoing {
+			n++
+		}
+	}
+	return n
+}
+
+func (m Model) doPing(id string) tea.Cmd {	return actionCmd(func() (string, bool) {
 		rid, err := resolveQuiet(id)
 		if err != nil {
 			return err.Error(), true
@@ -603,10 +717,14 @@ func (m Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if target == "" {
 				return m2, nil
 			}
-			if action == "ping" {
+			switch action {
+			case "ping":
 				return m2, m.doPing(target)
+			case "chat":
+				return m2, m.doChatOpen(target)
+			default:
+				return m2, m.doConnect(target)
 			}
-			return m2, m.doConnect(target)
 		}
 	}
 	// Texteingaben füttern.

@@ -58,8 +58,15 @@ type Client struct {
 }
 
 // ipcAddr ist als Variable ausgelegt, damit Tests einen Fake-Daemon
-// einhängen können (Produktion: config.IPCAddr).
-var ipcAddr = config.IPCAddr
+// einhängen können ("" = auto: daemon.ipc-Datei, sonst 37777).
+var ipcAddr = ""
+
+func resolveIPCAddr() string {
+	if ipcAddr != "" {
+		return ipcAddr
+	}
+	return fmt.Sprintf("127.0.0.1:%d", config.ReadIPCPort())
+}
 
 // Dial lädt das IPC-Token (Fehler, wenn nie ein Daemon lief).
 func Dial() (*Client, error) {
@@ -80,7 +87,7 @@ func (c *Client) Call(method, path string, body any) ([]byte, error) {
 		}
 		rdr = bytes.NewReader(data)
 	}
-	req, err := http.NewRequest(method, "http://"+ipcAddr+path, rdr)
+	req, err := http.NewRequest(method, "http://"+resolveIPCAddr()+path, rdr)
 	if err != nil {
 		return nil, err
 	}
@@ -191,4 +198,71 @@ func (c *Client) SetMode(setMode *string, setMesh *bool) (ModeInfo, error) {
 		return ModeInfo{}, err
 	}
 	return m, nil
+}
+
+// ChatSession spiegelt chat.Session (ohne Secrets).
+type ChatSession struct {
+	PeerID  string `json:"peer_id"`
+	Code    string `json:"code"`
+	Ready   bool   `json:"ready"`
+	Pending int    `json:"pending"`
+	Updated int64  `json:"updated_at"`
+}
+
+// ChatMessage spiegelt chat.Message (RAM-Verlauf des Daemons).
+type ChatMessage struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Text     string `json:"text"`
+	Ts       int64  `json:"ts"`
+	Outgoing bool   `json:"outgoing"`
+	Seq      uint64 `json:"seq"`
+}
+
+// ChatSessions listet Messenger-Sessions.
+func (c *Client) ChatSessions() ([]ChatSession, error) {
+	data, err := c.Call("GET", "/v1/chat/sessions", nil)
+	if err != nil {
+		return nil, err
+	}
+	var s []ChatSession
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	if s == nil {
+		s = []ChatSession{}
+	}
+	return s, nil
+}
+
+// ChatInbox holt den RAM-Verlauf.
+func (c *Client) ChatInbox() ([]ChatMessage, error) {
+	data, err := c.Call("GET", "/v1/chat/inbox", nil)
+	if err != nil {
+		return nil, err
+	}
+	var m []ChatMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		m = []ChatMessage{}
+	}
+	return m, nil
+}
+
+// ChatSend öffnet die Session (leerer Text) oder schickt E2E-verschlüsselt.
+// Antwort: "sent" | "queued (Handshake läuft)" | "bereit (...)".
+func (c *Client) ChatSend(id, text string) (string, error) {
+	data, err := c.Call("POST", "/v1/chat/send", map[string]string{"id": id, "text": text})
+	if err != nil {
+		return "", err
+	}
+	var v struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return "", err
+	}
+	return v.Status, nil
 }

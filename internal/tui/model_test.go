@@ -23,13 +23,36 @@ func TestTabNavigation(t *testing.T) {
 	if m.tab != TabDashboard {
 		t.Fatalf("start tab = %v", m.tab)
 	}
-	m = keyPress(m, "3") // Contacts
+	m = keyPress(m, "4") // Contacts (1 Dashboard, 2 Connections, 3 Chat)
 	if m.tab != TabContacts {
+		t.Fatalf("tab nach '4' = %v", m.tab)
+	}
+	m = keyPress(m, "3")
+	if m.tab != TabChat {
 		t.Fatalf("tab nach '3' = %v", m.tab)
 	}
 	m = keyPress(m, "1")
 	if m.tab != TabDashboard {
 		t.Fatalf("tab nach '1' = %v", m.tab)
+	}
+}
+
+func TestSidebarToggle(t *testing.T) {
+	m := testModel()
+	if m.showSide() {
+		// bei 120 Spalten sichtbar
+	} else {
+		t.Fatal("Sidebar sollte bei 120 Spalten sichtbar sein")
+	}
+	m = keyPress(m, "b")
+	if m.showSide() {
+		t.Fatal("Sidebar sollte nach 'b' versteckt sein")
+	}
+	// Chat-Tab blendet auto aus, auch wenn Toggle an.
+	m.tab = TabChat
+	m.sideHidden = false
+	if m.showSide() {
+		t.Fatal("Sidebar sollte im Chat-Tab auto-versteckt sein")
 	}
 }
 

@@ -3,8 +3,10 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -12,7 +14,46 @@ const (
 	IPCAddr = "127.0.0.1:37777"
 	// DefaultRendezvous für lokale Tests. Später: https://signal.lokro.net
 	DefaultRendezvous = "http://127.0.0.1:8787"
+	// IPCPortFallbacks: weitere Ports, falls :37777 belegt ist
+	// (zweite Identität/Daemon auf derselben Maschine).
+	IPCPortTries = 6
 )
+
+// IPCPortPath: Datei mit dem tatsächlichen IPC-Port (Daemon schreibt,
+// CLI/TUI lesen; fehlt sie -> 37777).
+func IPCPortPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "daemon.ipc"), nil
+}
+
+// ReadIPCPort liest den Port (Fallback 37777 bei allem).
+func ReadIPCPort() int {
+	p, err := IPCPortPath()
+	if err != nil {
+		return 37777
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return 37777
+	}
+	var port int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &port); err != nil || port < 1 || port > 65535 {
+		return 37777
+	}
+	return port
+}
+
+// WriteIPCPort hinterlegt den Port (0600).
+func WriteIPCPort(port int) error {
+	p, err := IPCPortPath()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(fmt.Sprintf("%d", port)), 0o600)
+}
 
 // Config liegt in ~/.lokronet/config.json (JSON statt YAML,
 // damit wir ohne externe Deps auskommen).

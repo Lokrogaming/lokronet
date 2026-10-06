@@ -119,8 +119,17 @@ func (c *Client) Send(m proto.SignalMessage) error {
 }
 
 // Poll holt Nachrichten ab (Long-Poll, waitMs 0-20000). Realtime-Kanal im MVP.
+// WICHTIG: eigener Timeout (wait + Puffer), sonst killt der 10s-Default
+// jeden idle Poll mit "deadline exceeded".
 func (c *Client) Poll(to string, waitMs int) ([]proto.SignalMessage, error) {
-	resp, err := c.HTTP.Get(fmt.Sprintf("%s/v1/signal?to=%s&wait=%d", c.BaseURL, to, waitMs))
+	if waitMs < 0 {
+		waitMs = 0
+	}
+	if waitMs > 20000 {
+		waitMs = 20000
+	}
+	cli := &http.Client{Timeout: time.Duration(waitMs)*time.Millisecond + 15*time.Second}
+	resp, err := cli.Get(fmt.Sprintf("%s/v1/signal?to=%s&wait=%d", c.BaseURL, to, waitMs))
 	if err != nil {
 		return nil, err
 	}
