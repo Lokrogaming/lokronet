@@ -28,26 +28,31 @@ import (
 var Version = "0.1.0-dev"
 
 func usage() {
-	fmt.Println(`lokronet – Meshnet-CLI (MVP: Mesh + Debug)
+	fmt.Println(`lokronet – Messenger + Dashboard (Mesh pausiert)
 
   lokronet version
   lokronet setup [--rendezvous URL] [--port N] [--endpoint ip:port]
   lokronet daemon                       Backend starten (Vordergrund)
   lokronet rendezvous [--addr 127.0.0.1:8787]
   lokronet status
+  lokronet chat --id <ID|Name> --text "..."   E2E-Nachricht senden (Handshake auto)
+  lokronet chat open --id <ID|Name>           Session-Handshake anstoßen
+  lokronet chat sessions                      Sessions (Session-Code zum Vergleichen)
+  lokronet chat inbox [--tail N]              Verlauf (nur RAM, kein Klartext-Log)
   lokronet connect --id <12 Ziffern>
   lokronet ping --id <12 Ziffern>
   lokronet debug on|off
   lokronet mode [performance|normal|eco]
-  lokronet mesh [on|off]
+  lokronet mesh [on|off]              (pausiert – Messenger braucht kein Mesh, nur Signaling+UDP-Direct)
   lokronet contacts add --name NAME --id ID
   lokronet contacts list
   lokronet contacts remove NAME
   lokronet connections history
   lokronet ips
   lokronet logs [--tail N]
-  lokronet dashboard [--dump]
-  lokronet dash            (Alias)`)
+  lokronet dashboard [--dump]         Terminal-UI mit Chat (bubbletea)
+  lokronet dash            (Alias)
+  lokronet dashboard-web [--addr 127.0.0.1:8080]   Browser-Dashboard (nur Loopback, für Server-Checks)`)
 }
 
 func main() {
@@ -86,8 +91,12 @@ func main() {
 		err = cmdLogs(os.Args[2:])
 	case "ips":
 		err = cmdIPs()
+	case "chat":
+		err = cmdChat(os.Args[2:])
 	case "dashboard", "dash":
 		err = cmdDashboard(os.Args[2:])
+	case "dashboard-web":
+		err = cmdDashboardWeb(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -100,7 +109,11 @@ func main() {
 
 // --- setup ---------------------------------------------------------------
 // Erzeugt ID + Keys, wählt UDP-Port, registriert am Rendezvous.
-// Bei 409 (ID vergeben) wird bis zu 3x neu gewürfelt.
+// Nur bei 409 (ID vergeben) wird neu gewürfelt (max. 4 Versuche).
+// Ist das Rendezvous nicht erreichbar, wird offline eingerichtet
+// (Identity + Config werden gespeichert, der Daemon registriert
+// beim nächsten Start automatisch nach) – statt wie bisher alles
+// zu verwerfen und nur "connection refused" zu melden.
 func cmdSetup(args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	rzURL := fs.String("rendezvous", config.DefaultRendezvous, "Rendezvous-Basis-URL")
@@ -120,6 +133,8 @@ func cmdSetup(args []string) error {
 	client := signal.NewClient(cfg.RendezvousURL)
 
 	var ident *identity.Identity
+	registered := false
+	var lastErr error
 	for tries := 0; tries < 4; tries++ {
 		ident, err = identity.Generate()
 		if err != nil {
@@ -138,12 +153,21 @@ func cmdSetup(args []string) error {
 			return err
 		}
 		if err = client.Register(peer); err == nil {
+			registered = true
+			lastErr = nil
 			break
 		}
-		if tries == 3 {
-			return fmt.Errorf("registrierung fehlgeschlagen: %w", err)
+		lastErr = err
+		if !signal.IsConflict(err) {
+			// Kein ID-Konflikt, sondern z.B. Rendezvous down oder
+			// falsche URL – neu würfeln bringt nichts, also raus
+			// und offline einrichten (siehe unten).
+			break
 		}
-		// Vermutlich 409 -> neu würfeln.
+		// 409 -> Schleife würfelt neue ID.
+		if tries == 3 {
+			return fmt.Errorf("registrierung fehlgeschlagen (ID 4x vergeben): %w", err)
+		}
 	}
 	if err := ident.Save(); err != nil {
 		return err
@@ -153,8 +177,16 @@ func cmdSetup(args []string) error {
 	}
 	fp, _ := ident.Fingerprint()
 	fmt.Printf("setup ok\n  id:          %s\n  fingerprint: %s\n  udp-port:    %d\n  endpoint:    %s\n  rendezvous:  %s\n", ident.ID, fp, cfg.UDPPort, publicEndpoint(cfg), cfg.RendezvousURL)
+	if !registered {
+		fmt.Printf("hinweis: rendezvous nicht erreicht (%v)\n", lastErr)
+		fmt.Println("  offline eingerichtet – Identity ist gespeichert.")
+		fmt.Printf("  für lokalen Test: `lokronet rendezvous` in eigenem Terminal starten,\n")
+		fmt.Printf("  dann `lokronet daemon` (registriert automatisch nach). Oder URL prüfen:\n")
+		fmt.Printf("  `lokronet setup --rendezvous http://DEIN-SERVER:8787`\n")
+		return nil
+	}
 	fmt.Println("nächste Schritte:")
-	fmt.Println("  1) lokronet rendezvous   (in eigenem Terminal, lokaler Test-Server)")
+	fmt.Println("  1) lokronet rendezvous   (in eigenem Terminal, lokaler Test-Server – falls noch nicht läuft)")
 	fmt.Println("  2) lokronet daemon       (Backend starten)")
 	fmt.Println("  3) lokronet status")
 	return nil
@@ -565,4 +597,129 @@ func cmdLogs(args []string) error {
 		fmt.Printf("[%s] %s\n", e.Time, e.Msg)
 	}
 	return nil
+}
+
+// --- chat ----------------------------------------------------------------------
+// Messenger-CLI (E2E via Daemon). Fokus für v0.2: Mesh ist pausiert,
+// Chat läuft über Signaling-Handshake + UDP-Direct, Fallback über
+// Signaling-Relay (msg-data), damit es auch hinter NAT ohne Port-Forward geht.
+
+func cmdChat(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("nutze: lokronet chat [open|sessions|inbox|send] --id ID [--text ...]")
+	}
+	switch args[0] {
+	case "open":
+		fs := flag.NewFlagSet("chat open", flag.ContinueOnError)
+		target := fs.String("id", "", "Peer-ID (12 Ziffern) oder Kontaktname")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *target == "" {
+			return fmt.Errorf("nutze: lokronet chat open --id <ID|Name>")
+		}
+		id, err := resolveTarget(*target)
+		if err != nil {
+			return err
+		}
+		c, err := client.Dial()
+		if err != nil {
+			return err
+		}
+		st, err := c.ChatSend(id, "")
+		if err != nil {
+			return err
+		}
+		fmt.Printf("chat-handshake mit %s angestoßen (%s)\n", id, st)
+		fmt.Println("hinweis: Session-Code in `lokronet chat sessions` out-of-band vergleichen!")
+		return nil
+	case "sessions":
+		c, err := client.Dial()
+		if err != nil {
+			return err
+		}
+		sess, err := c.ChatSessions()
+		if err != nil {
+			return err
+		}
+		if len(sess) == 0 {
+			fmt.Println("(keine Sessions – `lokronet chat open --id <ID>` startet den Handshake)")
+			return nil
+		}
+		for _, s := range sess {
+			alias := ""
+			if store, err := contacts.Load(); err == nil {
+				if a := store.AliasFor(s.PeerID); a != "" {
+					alias = " (" + a + ")"
+				}
+			}
+			fmt.Printf("  %s%s  ready=%v code=%s pending=%d\n", s.PeerID, alias, s.Ready, s.Code, s.Pending)
+		}
+		return nil
+	case "inbox":
+		fs := flag.NewFlagSet("chat inbox", flag.ContinueOnError)
+		tail := fs.Int("tail", 20, "letzte N Nachrichten")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		c, err := client.Dial()
+		if err != nil {
+			return err
+		}
+		msgs, err := c.ChatInbox()
+		if err != nil {
+			return err
+		}
+		if len(msgs) == 0 {
+			fmt.Println("(keine Nachrichten im RAM – Verlauf existiert nur solange beide online sind)")
+			return nil
+		}
+		if *tail > 0 && len(msgs) > *tail {
+			msgs = msgs[len(msgs)-*tail:]
+		}
+		for _, m := range msgs {
+			dir := "<-"
+			if m.Outgoing {
+				dir = "->"
+			}
+			fmt.Printf("[%s] %s %s: %s\n", time.Unix(m.Ts, 0).Format("15:04:05"), dir, m.From, m.Text)
+		}
+		return nil
+	case "send":
+		fs := flag.NewFlagSet("chat send", flag.ContinueOnError)
+		target := fs.String("id", "", "Peer-ID (12 Ziffern) oder Kontaktname")
+		text := fs.String("text", "", "Nachricht (max. ~800 Zeichen)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *target == "" || *text == "" {
+			return fmt.Errorf("nutze: lokronet chat send --id <ID|Name> --text \"...\"")
+		}
+		id, err := resolveTarget(*target)
+		if err != nil {
+			return err
+		}
+		c, err := client.Dial()
+		if err != nil {
+			return err
+		}
+		st, err := c.ChatSend(id, *text)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("chat: %s\n", st)
+		return nil
+	default:
+		// Kurzform: lokronet chat --id X --text "..." == send
+		fs := flag.NewFlagSet("chat", flag.ContinueOnError)
+		target := fs.String("id", "", "Peer-ID (12 Ziffern) oder Kontaktname")
+		text := fs.String("text", "", "Nachricht")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+		if *target != "" && *text != "" {
+			return cmdChat([]string{"send", "--id", *target, "--text", *text})
+		}
+		return fmt.Errorf("nutze: lokronet chat [open|sessions|inbox|send] --id ID [--text ...]")
+	}
 }

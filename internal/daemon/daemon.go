@@ -301,8 +301,9 @@ func (d *Daemon) heartbeatLoop() {
 	}
 }
 
-// beat heartbeated; bei unbekannter ID (z.B. Rendezvous-Neustart)
-// registriert sich der Daemon selbst neu (hat ja Keys + Endpoint).
+// beat heartbeated; bei unbekannter ID (z.B. Rendezvous-Neustart oder
+// offline eingerichtetem Setup) registriert sich der Daemon selbst neu
+// (hat ja Keys + Endpoint + Mode).
 func (d *Daemon) beat(mode string) error {
 	if err := d.sig.Heartbeat(d.ident.ID, d.publicEndpoint(), mode); err == nil {
 		return nil
