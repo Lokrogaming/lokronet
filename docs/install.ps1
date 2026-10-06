@@ -4,9 +4,9 @@
 # Weiterleitbarer Einzeiler (PowerShell, kein Admin noetig):
 #   irm https://net.lokro.dev/install.ps1 | iex
 # Mit Version:
-#   & ([scriptblock]::Create((irm https://net.lokro.dev/install.ps1))) -Version 0.2.0
+#   & ([scriptblock]::Create((irm https://net.lokro.dev/install.ps1))) -Version 0.2.1
 param(
-  [string]$Version = "0.2.0",
+  [string]$Version = "0.2.1",
   [string]$Base = "",
   [string]$InstallDir = "$env:LOCALAPPDATA\LokroNet"
 )

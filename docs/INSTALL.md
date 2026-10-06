@@ -62,7 +62,7 @@ das Script lädt das fertige Binary aus den GitHub-Releases und prüft sha256.
 curl -fsSL https://net.lokro.dev/install | sudo bash
 
 # Version pinnen (folgt automatisch dem Release-Tag vX.Y.Z)
-curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --version=0.2.0
+curl -fsSL https://net.lokro.dev/install | sudo bash -s -- --version=0.2.1
 
 # Ohne root, nach ~/.local/bin
 curl -fsSL https://net.lokro.dev/install | bash -s -- --user
