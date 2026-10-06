@@ -20,7 +20,7 @@
 #   --rendezvous  nur Rendezvous-Service · --daemon nur User-Daemon
 #
 # Optionen:
-#   --version X     Version pinnen (Default: 0.2.1, oder LOKRO_VERSION)
+#   --version X     Version pinnen (Default: 0.2.2, oder LOKRO_VERSION)
 #   --base URL      Download-Basis (Default: GitHub-Release-Assets vVERSION, oder LOKRO_BASE)
 #   --user          nach ~/.local/bin installieren (kein root, kein systemd-system)
 #   --rendezvous    zusätzlich System-Service lokro-rendezvous einrichten (:8787)
@@ -30,7 +30,7 @@
 #   --no-systemd    keine Services anfassen (nur Binary)
 set -euo pipefail
 
-VERSION="${LOKRO_VERSION:-0.2.1}"
+VERSION="${LOKRO_VERSION:-0.2.2}"
 # BASE wird bewusst erst NACH dem Argument-Parsing gesetzt (siehe unten),
 # damit --version / LOKRO_VERSION in die Default-URL einfließen.
 BASE="${LOKRO_BASE:-}"
