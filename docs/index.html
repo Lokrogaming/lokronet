@@ -123,6 +123,15 @@ lokronet chat open --id 123456789012</pre>
   </div>
 </section>
 
+<!-- BRAND / ASCII-LOGO (Source: assets/logo-ascii-big.txt, per fetch geladen) -->
+<section id="logo" class="border-b border-line">
+  <div class="mx-auto max-w-6xl px-4 py-10">
+    <div class="overflow-x-auto rounded-2xl border border-line bg-panel p-6 text-center">
+      <pre id="ascii-logo" class="inline-block text-left font-mono text-sm leading-snug text-mint">lade Logo …</pre>
+    </div>
+  </div>
+</section>
+
 <!-- INSTALL -->
 <section id="install" class="mx-auto max-w-6xl px-4 py-16">
   <h2 class="text-2xl font-bold text-white">Installation</h2>
@@ -299,6 +308,10 @@ lokronet chat sessions   # Code vergleichen!</pre>
 </footer>
 
 <script>
+fetch('assets/logo-ascii-big.txt')
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+  .then(t => { document.getElementById('ascii-logo').textContent = t.replace(/\n$/, ''); })
+  .catch(() => { document.getElementById('logo').style.display = 'none'; });
 document.querySelectorAll('[data-copy]').forEach(btn => {
   btn.addEventListener('click', async () => {
     const text = btn.getAttribute('data-copy').replace(/&#10;/g, '\n');
